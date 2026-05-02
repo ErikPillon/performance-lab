@@ -1,0 +1,34 @@
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700;900&family=Manrope:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Colors */
+  --color-surface: #f7f9fb;
+  --color-surface-dim: #d8dadc;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f4f6;
+  --color-surface-variant: #e0e3e5;
+  --color-on-surface: #191c1e;
+  --color-on-surface-variant: #45464d;
+  --color-outline: #76777d;
+  --color-primary: #000000;
+  --color-secondary: #515f74;
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-tertiary-fixed: #c9e6ff;
+  --color-tertiary-fixed-dim: #89ceff;
+  --color-on-tertiary-container: #008cc7;
+  --color-on-tertiary-fixed-variant: #004c6e;
+  --color-secondary-fixed: #d5e3fd;
+  --color-on-secondary-container: #57657b;
+
+  /* Fonts */
+  --font-lexend: 'Lexend', ui-sans-serif, system-ui, sans-serif;
+  --font-manrope: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+
+  /* Spacing */
+  --spacing-card-padding: 20px;
+  --spacing-gutter: 24px;
+  --spacing-stack-md: 16px;
+  --spacing-stack-lg: 32px;
+}
