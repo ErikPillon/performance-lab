@@ -25,8 +25,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { useEffect, useState } from 'react';
-import { CredentialResponse } from '@react-oauth/google';
-import jwt_decode from 'jwt-decode';
+import { jwtDecode } from 'jwt-decode';
 import apiClient from './services/apiClient';
 import Login from './components/Login';
 import Profile from './components/Profile';
@@ -85,11 +84,16 @@ export default function App() {
     getAnalysis();
   }, []);
 
-  const handleLoginSuccess = (credentialResponse: CredentialResponse) => {
-    if (credentialResponse.credential) {
-      const decoded: UserProfile = jwt_decode(credentialResponse.credential);
-      setUser(decoded);
-      setIsLoggedIn(true);
+  const handleLoginSuccess = (credentialResponse: any) => {
+    if (credentialResponse.access_token || credentialResponse.credential) {
+      try {
+        const token = credentialResponse.credential || credentialResponse.access_token;
+        const decoded: UserProfile = jwtDecode(token);
+        setUser(decoded);
+        setIsLoggedIn(true);
+      } catch(e) {
+        console.error("Failed to decode token", e);
+      }
     }
   };
 
@@ -192,7 +196,7 @@ export default function App() {
                 </div>
                 <div>
                   <span className="font-manrope text-3xl font-semibold tracking-[-0.02em] text-primary">
-                    {metrics.length > 0
+                    {metrics.length > 0 && metrics[metrics.length - 1].ctl != null
                       ? metrics[metrics.length - 1].ctl.toFixed(1)
                       : 'N/A'}
                   </span>
@@ -202,10 +206,10 @@ export default function App() {
                     Optimal Range
                   </span>
                 </div>
-              </div>
+                </div>
 
-              {/* Fatigue (ATL) */}
-              <div className="bg-surface-container-lowest border border-surface-variant rounded-xl p-card-padding flex flex-col justify-between shadow-sm">
+                {/* Fatigue (ATL) */}
+                <div className="bg-surface-container-lowest border border-surface-variant rounded-xl p-card-padding flex flex-col justify-between shadow-sm">
                 <div className="flex justify-between items-start mb-4">
                   <span className="font-manrope text-xs font-bold tracking-[0.05em] uppercase text-secondary">
                     Fatigue (ATL)
@@ -214,7 +218,7 @@ export default function App() {
                 </div>
                 <div>
                   <span className="font-manrope text-3xl font-semibold tracking-[-0.02em] text-primary">
-                    {metrics.length > 0
+                    {metrics.length > 0 && metrics[metrics.length - 1].atl != null
                       ? metrics[metrics.length - 1].atl.toFixed(1)
                       : 'N/A'}
                   </span>
@@ -224,10 +228,10 @@ export default function App() {
                     High
                   </span>
                 </div>
-              </div>
+                </div>
 
-              {/* Form (TSB) */}
-              <div className="bg-surface-container-lowest border border-surface-variant rounded-xl p-card-padding flex flex-col justify-between shadow-sm">
+                {/* Form (TSB) */}
+                <div className="bg-surface-container-lowest border border-surface-variant rounded-xl p-card-padding flex flex-col justify-between shadow-sm">
                 <div className="flex justify-between items-start mb-4">
                   <span className="font-manrope text-xs font-bold tracking-[0.05em] uppercase text-secondary">
                     Form (TSB)
@@ -236,7 +240,7 @@ export default function App() {
                 </div>
                 <div>
                   <span className="font-manrope text-3xl font-semibold tracking-[-0.02em] text-primary">
-                    {metrics.length > 0
+                    {metrics.length > 0 && metrics[metrics.length - 1].tsb != null
                       ? metrics[metrics.length - 1].tsb.toFixed(1)
                       : 'N/A'}
                   </span>
@@ -246,12 +250,12 @@ export default function App() {
                     Productive
                   </span>
                 </div>
-              </div>
-            </section>
+                </div>
+                </section>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
-              {/* Middle Section: Recent Activities */}
-              <section className="lg:col-span-5 bg-surface-container-lowest border border-surface-variant rounded-xl flex flex-col shadow-sm max-h-[500px]">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
+                {/* Middle Section: Recent Activities */}
+                <section className="lg:col-span-5 bg-surface-container-lowest border border-surface-variant rounded-xl flex flex-col shadow-sm max-h-[500px]">
                 <div className="p-card-padding border-b border-surface-variant flex justify-between items-center">
                   <h2 className="font-lexend text-2xl font-semibold leading-snug text-primary">
                     Recent Activities
@@ -276,27 +280,28 @@ export default function App() {
                           {activity.name}
                         </h3>
                         <p className="font-manrope text-sm text-secondary truncate">
-                          {new Date(
-                            activity.timestamp
-                          ).toLocaleDateString()} •{' '}
+                          {activity.timestamp 
+                            ? new Date(activity.timestamp).toLocaleDateString()
+                            : 'Unknown Date'} •{' '}
                           {activity.activity_type}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
                         <div className="font-manrope text-sm font-semibold tracking-[-0.02em] text-primary">
-                          {new Date(activity.duration_min * 60 * 1000)
-                            .toISOString()
-                            .substr(11, 8)}
+                          {activity.duration_min != null
+                            ? new Date(activity.duration_min * 60 * 1000)
+                                .toISOString()
+                                .substr(11, 8)
+                            : '00:00:00'}
                         </div>
                         <div className="font-manrope text-xs text-secondary mt-0.5">
-                          {activity.avg_heart_rate} bpm |{' '}
-                          {activity.trimp.toFixed(0)} TRIMP
+                          {activity.avg_heart_rate ?? 0} bpm |{' '}
+                          {activity.trimp?.toFixed(0) ?? 0} TRIMP
                         </div>
                       </div>
                     </div>
                   ))}
-                </div>
-                <div className="p-4 border-t border-surface-variant text-center bg-surface-container-lowest rounded-b-xl">
+                </div>                <div className="p-4 border-t border-surface-variant text-center bg-surface-container-lowest rounded-b-xl">
                   <button className="font-manrope text-xs font-bold tracking-[0.05em] text-on-tertiary-container hover:text-on-tertiary-fixed-variant transition-colors uppercase w-full py-1">
                     View All Activities
                   </button>
