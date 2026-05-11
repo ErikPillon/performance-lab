@@ -59,12 +59,17 @@ coverage.xml
 *.cover
 .pytest_cache/
 
+# ==========================================
+# Data (Inputs / Outputs)
+# ==========================================
+/inputs/
 
 # ==========================================
 # Environment Variables (Secrets)
 # ==========================================
 # NEVER commit these to Git!
 .env
+.env.*
 .env.*.local
 .env.local
 .env.development
