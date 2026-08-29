@@ -177,6 +177,35 @@ as fast and produces a visibly different curve for identical training.
 Ports are deliberately offset (5433 / 6380 / 9100) to coexist with the
 `open-finance` stack on this machine.
 
+### Everything in Docker
+
+```bash
+cp .env.example .env      # then set POSTGRES_PASSWORD and S3_SECRET_KEY
+docker compose --profile apps up -d --build
+npm run db:migrate        # first run only
+```
+
+Dashboard at **http://localhost:3100**. nginx serves the built SPA and proxies
+`/api` to the API container, so the browser stays on one origin: no CORS, and no
+API URL baked into the bundle — the same image runs on localhost, on the LAN box
+and behind a public hostname.
+
+Infra alone (`postgres`, `redis`, `minio`) comes up without the profile:
+`npm run infra:up`. That is the mode to use while developing, with the services
+run locally against it.
+
+> **Native binaries and the lockfile.** `apps/web` declares
+> `optionalDependencies` for rollup, lightningcss, Tailwind's oxide and esbuild
+> across linux-x64, linux-arm64 and darwin-arm64. npm records only the variant
+> matching the machine that ran `npm install` ([npm/cli#4828]), so a lockfile
+> generated on a Mac fails the Linux image build on a missing native module.
+> Declaring the targets puts them all in the lockfile; npm skips the ones that
+> do not apply. Add a target here before building for a new architecture.
+
+[npm/cli#4828]: https://github.com/npm/cli/issues/4828
+
+### Local development
+
 ```bash
 cp .env.example .env      # then set POSTGRES_PASSWORD and S3_SECRET_KEY
 npm install
@@ -200,7 +229,7 @@ set -a && . ./.env && set +a && npm run api
 ```
 
 ```bash
-npm run web        # http://localhost:3100
+npm run web        # http://localhost:3100, proxying /api to :8003
 ```
 
 Backfill a directory of FIT files. Re-running is free: ingestion is keyed on
@@ -240,7 +269,7 @@ npm -w @lab/ingest-worker test
 
 ## Dashboard
 
-`npm run web` → http://localhost:3100
+`docker compose --profile apps up -d` or `npm run web` → http://localhost:3100
 
 - **Dashboard** — fitness/fatigue/form chart with daily load behind it, sport
   breakdown, heart-rate zone distribution, recent activities, current thresholds

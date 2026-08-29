@@ -11,15 +11,20 @@ function isoDate(value: unknown): string | undefined {
 
 export async function athleteRoutes(app: FastifyInstance) {
   app.get('/athletes', async () => {
+    // A left join and group-by rather than a correlated subquery: the raw form
+    // needs an inner alias, and Drizzle renders the outer table reference in a
+    // way that did not bind to it, silently returning zero for every athlete.
     const rows = await db
       .select({
         id: athlete.id,
         displayName: athlete.displayName,
         sex: athlete.sex,
         timezone: athlete.timezone,
-        activities: sql<number>`(SELECT count(*)::int FROM ${activity} a WHERE a.athlete_id = ${athlete.id})`,
+        activities: sql<number>`count(${activity.id})::int`,
       })
       .from(athlete)
+      .leftJoin(activity, eq(activity.athleteId, athlete.id))
+      .groupBy(athlete.id, athlete.displayName, athlete.sex, athlete.timezone)
       .orderBy(asc(athlete.displayName));
     return { athletes: rows };
   });
