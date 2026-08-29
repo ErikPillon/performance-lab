@@ -1,0 +1,146 @@
+@import 'tailwindcss';
+@import 'uplot/dist/uPlot.min.css';
+
+/*
+ * Tokens are defined once on :root and redefined under both the media query and
+ * the explicit [data-theme] attribute, so the toggle wins in either direction
+ * and a viewer on "system" still gets a complete palette.
+ */
+:root {
+  --bg: #fbfcfd;
+  --panel: #ffffff;
+  --panel-2: #f4f6f8;
+  --border: #e2e6ea;
+  --border-strong: #cdd4da;
+  --text: #10161b;
+  --muted: #5c6a76;
+  --faint: #8a97a3;
+
+  --accent: #2563eb;
+  --ctl: #2563eb;
+  --atl: #f97316;
+  --tsb: #7c3aed;
+
+  --run: #059669;
+  --bike: #2563eb;
+  --swim: #0891b2;
+  --other: #64748b;
+
+  --good: #059669;
+  --warn: #d97706;
+  --bad: #dc2626;
+
+  --grid: #e8ecf0;
+  --shadow: 0 1px 2px rgb(16 22 27 / 0.04), 0 4px 16px rgb(16 22 27 / 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0b0f14;
+    --panel: #121820;
+    --panel-2: #182029;
+    --border: #222c37;
+    --border-strong: #2f3c49;
+    --text: #e6edf3;
+    --muted: #93a1b0;
+    --faint: #64748b;
+
+    --accent: #60a5fa;
+    --ctl: #60a5fa;
+    --atl: #fb923c;
+    --tsb: #a78bfa;
+
+    --run: #34d399;
+    --bike: #60a5fa;
+    --swim: #22d3ee;
+    --other: #94a3b8;
+
+    --good: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+
+    --grid: #1c2530;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.2);
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0b0f14;
+  --panel: #121820;
+  --panel-2: #182029;
+  --border: #222c37;
+  --border-strong: #2f3c49;
+  --text: #e6edf3;
+  --muted: #93a1b0;
+  --faint: #64748b;
+
+  --accent: #60a5fa;
+  --ctl: #60a5fa;
+  --atl: #fb923c;
+  --tsb: #a78bfa;
+
+  --run: #34d399;
+  --bike: #60a5fa;
+  --swim: #22d3ee;
+  --other: #94a3b8;
+
+  --good: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+
+  --grid: #1c2530;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.2);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular figures stop numbers jittering as values update. */
+.num { font-variant-numeric: tabular-nums; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+/* uPlot inherits the page palette rather than shipping its own. */
+.uplot { font-family: inherit !important; }
+.u-legend { display: none; }
+.u-select { background: rgb(96 165 250 / 0.12); }
+
+table.data { width: 100%; border-collapse: collapse; }
+table.data th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.data td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.data tbody tr:hover { background: var(--panel-2); }
+table.data tbody tr:last-child td { border-bottom: none; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }

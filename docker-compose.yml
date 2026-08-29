@@ -1,0 +1,122 @@
+# Infra runs by default; application services live behind the `apps` profile so
+# you can iterate on them locally against dockerised Postgres/Redis/MinIO:
+#   npm run infra:up          -> postgres + redis + minio only
+#   docker compose --profile apps up -d   -> everything
+name: performance-lab
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-performance_lab}
+    ports: ["5433:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lab} -d ${POSTGRES_DB:-performance_lab}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6380:6379"]
+    volumes: ["redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-lab-access-key}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+    ports: ["9100:9000", "9101:9001"]
+    volumes: ["miniodata:/data"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Creates the bucket and exits. Idempotent.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-lab-access-key}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      S3_BUCKET: ${S3_BUCKET:-performance-lab}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY} &&
+      mc mb --ignore-existing local/$${S3_BUCKET} &&
+      mc version enable local/$${S3_BUCKET} &&
+      echo 'bucket ready: '$${S3_BUCKET}"
+
+  analytics:
+    profiles: ["apps"]
+    build: ./services/analytics
+    restart: unless-stopped
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-lab-access-key}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      S3_BUCKET: ${S3_BUCKET:-performance-lab}
+      S3_REGION: ${S3_REGION:-us-east-1}
+    ports: ["8001:8001"]
+    depends_on:
+      minio: { condition: service_healthy }
+
+  api:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-lab}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-performance_lab}
+      ANALYTICS_URL: http://analytics:8001
+      API_PORT: "8003"
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+    ports: ["8003:8003"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      analytics: { condition: service_started }
+
+  ingest-worker:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: services/ingest-worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-lab}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-performance_lab}
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-lab-access-key}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      S3_BUCKET: ${S3_BUCKET:-performance-lab}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: "true"
+      ANALYTICS_URL: http://analytics:8001
+      INGEST_PORT: "8002"
+    ports: ["8002:8002"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
