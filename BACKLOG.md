@@ -69,16 +69,31 @@ retry policy means a producer and a consumer cannot disagree about them.
 
 ---
 
-### ☐ 2a. Lazy queue connections
+### ☑ 2a. Lazy queue connections
 
-**Why.** `packages/jobs` opens a Redis connection at module load, so importing
-anything that transitively reaches it connects — which hung the API test suite
+**Why.** `packages/jobs` opened a Redis connection at module load, so importing
+anything that transitively reached it connected — which hung the API test suite
 until the pure validation rules were split into their own module. Module-load
 side effects are the underlying problem.
 
-**What.** Create queues and the connection on first use.
+**Done.** Queues and the connection are created on first use. `connection()`,
+`parseQueue()` and friends are memoised accessors rather than eagerly-built
+objects; call sites gained `()`, which is the point — a connection is now
+visible where it is opened instead of hiding in an import.
 
-**Effort** small.
+`REDIS_URL` is read at call time too, so a script can set it after importing
+and an unset value fails with a usable stack rather than during someone else's
+import.
+
+Shutdown is bounded: `closeQueues()` races the graceful `QUIT` against a 2 s
+timer and then drops the socket. A clean quit needs a server to answer it, and
+when Redis is already gone the old path waited for a reply that was never
+coming — a process handling SIGTERM would hang until something killed it
+harder.
+
+`packages/jobs` now has tests, and the first one is the regression guard:
+importing the module must leave `isConnected()` false. It deliberately needs no
+running Redis — if it ever does, the invariant is already broken.
 
 ---
 
@@ -160,7 +175,7 @@ duration totals, planned-vs-actual once #12 exists.
 
 **Effort** medium.
 
-### ☐ 6. Trend charts for efficiency factor and decoupling
+### ☑ 6. Trend charts for efficiency factor and decoupling
 
 **Why.** These are already computed per activity and only visible one session at
 a time. In trend they are the clearest "is my aerobic fitness improving"
@@ -170,7 +185,39 @@ shows that.
 
 **What.** EF and decoupling over time, per sport, with a rolling median.
 
-**Effort** small. Data already exists in `activity_load`.
+**Done.** `/trends` plots both metrics per sport: individual sessions as faint
+dots, a rolling median as the line. Drawing both matters — the scatter is wide
+enough that a line alone would imply a precision the data does not have.
+
+On the real corpus the signal is larger than the backlog estimated. Running,
+2024-06 to 2026-08:
+
+| | start | end | change |
+|---|---|---|---|
+| Efficiency factor | 0.0161 | 0.0215 | **+34%** |
+| Average heart rate | 165.5 | 136.0 bpm | **−17.8%** |
+| Decoupling | 10.6% | 2.2% | **−79%** |
+
+More effort per heartbeat at a much lower heart rate, and durability moving from
+poor to well-supported. The page states that pairing in words above the charts,
+because efficiency factor alone moves with terrain and pacing — it only means
+something read against heart rate.
+
+Two things worth recording:
+
+- **Series are keyed on effort source, not just sport.** EF is `mean effort /
+  mean HR`, and effort is watts with a power meter and grade-adjusted speed
+  without — roughly sixty times apart. This corpus happens to be cleanly split
+  (running all speed, cycling all power), so mixing them would have looked fine
+  until one ride without a meter drew a 60× cliff that reads as fitness
+  collapse.
+- **The smoothing window is calendar time, not a count of sessions.** "The last
+  9 activities" spans three weeks in a block and five months around an injury.
+  Layoffs longer than the window break the line rather than being bridged: the
+  median is well-defined on both sides of a gap, so nothing is null and a
+  three-month break was otherwise drawn as three months of steady improvement.
+
+**Effort** small. Data already existed in `activity_load`.
 
 ---
 
@@ -218,14 +265,36 @@ the API cannot be used to discover that an id exists.
 - ☐ **Session revocation UI.** Sessions are listed in the database but there is
   no "sign out everywhere".
 
-### ☐ 8. Browser upload
+### ☑ 8. Browser upload
 
 **Why.** Importing is CLI-only. The upload endpoint also still lives on the
 ingest worker rather than the API, which splits the public HTTP surface across
 two services.
 
-**What.** Move the upload route to `services/api`, add a drag-and-drop view with
-per-file progress and dedupe feedback ("already imported").
+**Done.** The route is on `services/api` and `/upload` is a drag-and-drop view
+with per-file progress and dedupe feedback.
+
+Worth recording: this was worse than "split across two services". The edge proxy
+only ever forwarded `/api/*`, and the worker's port is not published in
+production at all — so the upload endpoint was **unreachable in any real
+deployment**. Importing was CLI-only whether or not that was the intent.
+
+`ingestBytes` and the object store moved into `packages/ingest`, shared by the
+upload route and the backfill CLI. The S3 client is built on first use, same
+lesson as [2a]: the old module read credentials at import and threw on a missing
+key, so anything that transitively imported it failed before its own first line.
+A pleasing consequence — a duplicate upload now returns without ever
+constructing an S3 client, because the hash check short-circuits first.
+
+Uploads go one file per request at concurrency 3, not one batch request. The
+endpoint still accepts a batch, but then progress is only known for the whole
+batch and a season of exports becomes one half-gigabyte request that fails as a
+unit.
+
+Rejections are per file: an unreadable file reports itself and the other
+nineteen still land. Non-FIT parts are still drained before being rejected — an
+unread multipart part blocks the ones behind it, so a single `.jpg` would
+otherwise hang the rest of the upload.
 
 **Effort** small. **Depends on** #7 for anything multi-user.
 
@@ -310,11 +379,42 @@ curve. On this data critical speed comes out at 4:35/km against an
 independently-estimated threshold pace of 4:27/km — two methods within 8 s/km,
 which is a reassuring cross-check. VO₂max and race prediction remain.
 
-### ☐ 11. Zone distribution over time and polarisation index
+### ◔ 11. Zone distribution over time and polarisation index
 
 **Why.** Current zone distribution is a single all-time aggregate. The
 interesting question is whether the *shape* is drifting — this athlete is at
 65/26/5/3/1, heavily Z1-weighted, and whether that is deliberate is invisible.
+
+**Done — distribution over time.** A stacked column per month on `/trends`,
+plus the three-zone rollup and a named shape. Current state across all sports:
+**92% easy · 7% moderate · 1% hard over 422 h — pyramidal.**
+
+The five stored zones collapse to three at the two physiological thresholds
+(the 0.89 and 0.99 LTHR edges the analytics service already cuts at), which is
+what makes "polarised" and "pyramidal" mean something rather than being
+adjectives.
+
+Column height tracks total recorded time, and this was the whole design
+problem. Normalising every column to full height was the first attempt and it
+lied: June 2024 holds 1.7 hours, nearly all of it hard, and full-height it
+screamed a training shape one session cannot support — directly beside a
+30-hour month drawn exactly the same size. Height is now how much a column is
+entitled to claim.
+
+**Deliberately not done — the numeric polarisation index.** The published
+indices are a compressed function of the same three numbers, they disagree with
+each other, and a scalar invites reading a decimal place of significance into a
+coarse description of a training block. The shape is named instead, by
+ordering:
+
+| shape | ordering |
+|---|---|
+| pyramidal | easy > moderate > hard |
+| polarised | easy > hard > moderate |
+| threshold | not easy-dominated (under 60% easy) |
+
+These need no citation and cannot be quietly wrong. If a numeric index is
+wanted later it should arrive with a named source, not a formula from memory.
 
 **Effort** small.
 

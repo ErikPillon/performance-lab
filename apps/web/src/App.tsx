@@ -11,6 +11,8 @@ import { Dashboard } from './pages/Dashboard';
 import { SignIn } from './pages/SignIn';
 import { Sharing } from './pages/Sharing';
 import { Thresholds } from './pages/Thresholds';
+import { Trends } from './pages/Trends';
+import { Upload } from './pages/Upload';
 import { ErrorNote, Loading } from './components/ui';
 
 type Theme = 'light' | 'dark' | 'system';
@@ -107,6 +109,8 @@ export default function App() {
         { to: '/calendar', label: 'Calendar' },
         { to: '/activities', label: 'Activities' },
         { to: '/curve', label: 'Curve' },
+        { to: '/trends', label: 'Trends' },
+        ...(isOwner ? [{ to: '/upload', label: 'Import' }] : []),
         // Thresholds rescale everything derived, so only the athlete sees it.
         ...(isOwner ? [{ to: '/thresholds', label: 'Thresholds' }] : []),
         { to: '/sharing', label: 'Sharing' },
@@ -141,6 +145,8 @@ export default function App() {
         <Route path="/activities/:id" element={<ActivityDetail />} />
         <Route path="/calendar" element={<Calendar athleteId={athlete.id} />} />
         <Route path="/curve" element={<Curve athleteId={athlete.id} />} />
+        <Route path="/trends" element={<Trends athleteId={athlete.id} />} />
+        {isOwner && <Route path="/upload" element={<Upload athleteId={athlete.id} />} />}
         {isOwner && <Route path="/thresholds" element={<Thresholds athleteId={athlete.id} />} />}
         <Route path="/sharing" element={<Sharing athleteId={athlete.id} />} />
         <Route path="*" element={<Navigate to="/" replace />} />

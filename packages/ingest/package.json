@@ -1,5 +1,5 @@
 {
-  "name": "@lab/jobs",
+  "name": "@lab/ingest",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "bullmq": "^5.34.5",
-    "ioredis": "^5.4.2"
+    "@aws-sdk/client-s3": "^3.717.0",
+    "@lab/db": "*",
+    "@lab/jobs": "*",
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

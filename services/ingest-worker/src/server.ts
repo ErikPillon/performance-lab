@@ -1,14 +1,10 @@
 import Fastify from 'fastify';
-import multipart from '@fastify/multipart';
 import { count, eq, sql } from 'drizzle-orm';
 import { activity, activityLoad, athlete, athleteDaily, db, rawFile } from '@lab/db';
-import { env } from './env.js';
-import { ingestBytes } from './ingest.js';
 import { loadQueue, parseQueue, pmcQueue } from '@lab/jobs';
 
 export async function buildServer() {
   const app = Fastify({ logger: { level: 'info' } });
-  await app.register(multipart, { limits: { fileSize: env.maxUploadBytes, files: 20 } });
 
   app.get('/health', async () => {
     const [athletes] = await db.select({ n: count() }).from(athlete);
@@ -16,46 +12,20 @@ export async function buildServer() {
       status: 'ok',
       athletes: athletes?.n ?? 0,
       queues: {
-        parse: await parseQueue.getJobCounts(),
-        load: await loadQueue.getJobCounts(),
-        pmc: await pmcQueue.getJobCounts(),
+        parse: await parseQueue().getJobCounts(),
+        load: await loadQueue().getJobCounts(),
+        pmc: await pmcQueue().getJobCounts(),
       },
     };
   });
 
-  /**
-   * Upload one or more activity files. This is the canonical ingestion path:
-   * every source ultimately produces FIT, so connectors feed this rather than
-   * bypassing it.
-   */
-  app.post<{ Params: { athleteId: string } }>(
-    '/athletes/:athleteId/files',
-    async (req, reply) => {
-      const { athleteId } = req.params;
-      const [found] = await db
-        .select({ id: athlete.id })
-        .from(athlete)
-        .where(eq(athlete.id, athleteId))
-        .limit(1);
-      if (!found) return reply.code(404).send({ error: 'unknown athlete' });
-
-      const results = [];
-      for await (const part of req.files()) {
-        const bytes = await part.toBuffer();
-        results.push({
-          filename: part.filename,
-          ...(await ingestBytes({
-            athleteId,
-            bytes,
-            filename: part.filename,
-            contentType: part.mimetype,
-          })),
-        });
-      }
-      if (results.length === 0) return reply.code(400).send({ error: 'no files in request' });
-      return reply.code(202).send({ accepted: results });
-    },
-  );
+    /*
+     * The upload route used to live here. It now sits on the API, which is the
+     * only service the edge proxy forwards to — while the route was here, a
+     * browser had no reachable way to import a file in any real deployment.
+     *
+     * The CLI backfill still calls ingestBytes directly rather than over HTTP.
+     */
 
   /** Ingestion health at a glance: what came in, what made it through. */
   app.get('/ingest/status', async () => {
@@ -92,9 +62,9 @@ export async function buildServer() {
       flagged,
       load: { methods, pmc },
       queues: {
-        parse: await parseQueue.getJobCounts(),
-        load: await loadQueue.getJobCounts(),
-        pmc: await pmcQueue.getJobCounts(),
+        parse: await parseQueue().getJobCounts(),
+        load: await loadQueue().getJobCounts(),
+        pmc: await pmcQueue().getJobCounts(),
       },
     };
   });

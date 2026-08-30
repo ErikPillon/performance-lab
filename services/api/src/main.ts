@@ -9,15 +9,17 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { sql as pg } from '@lab/db';
-import { connection } from '@lab/jobs';
+import { closeQueues } from '@lab/jobs';
 import { env } from './env.js';
 import { activityRoutes } from './routes/activities.js';
 import { HttpError, resolveActor } from './access.js';
 import { athleteRoutes } from './routes/athletes.js';
 import { authRoutes } from './routes/auth.js';
 import { curveRoutes } from './routes/curves.js';
+import { trendRoutes } from './routes/trends.js';
 import { grantRoutes } from './routes/grants.js';
 import { thresholdRoutes } from './routes/thresholds.js';
+import { uploadRoutes } from './routes/uploads.js';
 
 const app = Fastify({ logger: { level: 'info' } });
 
@@ -57,6 +59,8 @@ await app.register(athleteRoutes);
 await app.register(activityRoutes);
 await app.register(thresholdRoutes);
 await app.register(curveRoutes);
+await app.register(trendRoutes);
+await app.register(uploadRoutes);
 await app.register(grantRoutes);
 
 await app.listen({ port: env.port, host: '0.0.0.0' });
@@ -65,7 +69,7 @@ app.log.info(`api listening on :${env.port}`);
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     await app.close();
-    await connection.quit();
+    await closeQueues();
     await pg.end();
     process.exit(0);
   });

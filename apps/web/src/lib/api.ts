@@ -192,6 +192,98 @@ export interface CurveResponse {
   available: string[];
 }
 
+export interface TrendPointRow {
+  activityId: string;
+  startTime: string;
+  efficiencyFactor: number | null;
+  decouplingPct: number | null;
+  avgHr: number | null;
+  durationS: number | null;
+  distanceM: number | null;
+}
+
+export interface TrendsResponse {
+  sport: string;
+  available: { sport: string; activities: number; withEf: number; withDecoupling: number }[];
+  /**
+   * Split by effort source as well as sport: efficiency factor is watts per
+   * beat with a power meter and metres-per-second per beat without, which are
+   * roughly sixty times apart and must never share a line.
+   */
+  groups: {
+    effortSource: 'power' | 'speed';
+    unit: string;
+    points: TrendPointRow[];
+  }[];
+}
+
+export interface UploadOutcome {
+  filename: string;
+  status: 'queued' | 'duplicate' | 'rejected';
+  rawFileId?: string;
+  sha256?: string;
+  reason?: string;
+}
+
+/**
+ * Upload one file, reporting progress as it goes.
+ *
+ * XMLHttpRequest rather than fetch: fetch still has no upload progress events,
+ * and a 25 MB FIT file over a home connection is long enough that a progress
+ * bar is the difference between "working" and "broken".
+ *
+ * One file per request, run with small concurrency by the caller. The endpoint
+ * accepts many at once, but then progress is only known for the batch, and a
+ * season of exports becomes one half-gigabyte request that fails whole.
+ */
+export function uploadFile(
+  athleteId: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<UploadOutcome> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}/athletes/${athleteId}/files`);
+    // The session cookie is what authorises this; same origin, but XHR needs
+    // telling explicitly.
+    xhr.withCredentials = true;
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total);
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 401) return reject(new NotSignedInError());
+      let body: { accepted?: UploadOutcome[]; error?: string } = {};
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        return reject(new Error(`${xhr.status} ${xhr.statusText}`));
+      }
+      if (xhr.status >= 400) return reject(new Error(body.error ?? `${xhr.status}`));
+      const outcome = body.accepted?.[0];
+      // A 202 with nothing in it would otherwise show as a silent success.
+      if (!outcome) return reject(new Error('server accepted nothing'));
+      resolve(outcome);
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('network error during upload')));
+    xhr.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+
+    xhr.send(form);
+  });
+}
+
+export interface ZoneTrendResponse {
+  bucket: 'week' | 'month';
+  periods: { start: string; zones: Record<string, number> }[];
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -238,4 +330,10 @@ export const api = {
     get<{ sports: { sport: string; activities: number }[] }>(`/athletes/${id}/curve/sports`),
   streams: (id: string, points = 1500) =>
     get<StreamPayload>(`/activities/${id}/streams`, { points }),
+  trends: (id: string, params: { sport?: string; from?: string; to?: string } = {}) =>
+    get<TrendsResponse>(`/athletes/${id}/trends`, params),
+  zonesTrend: (
+    id: string,
+    params: { bucket?: 'week' | 'month'; sport?: string; from?: string; to?: string } = {},
+  ) => get<ZoneTrendResponse>(`/athletes/${id}/zones/trend`, params),
 };

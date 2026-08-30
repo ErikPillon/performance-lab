@@ -140,7 +140,7 @@ async function handle(job: { data: ParseJob }): Promise<string> {
   // in `parsing` and the retry re-runs the whole step, rather than leaving an
   // activity that looks ingested but has no load job and never gets one.
   // (BullMQ rejects ':' in custom job ids.)
-  await loadQueue.add('load', { activityId, athleteId }, { jobId: `load-${activityId}` });
+  await loadQueue().add('load', { activityId, athleteId }, { jobId: `load-${activityId}` });
 
   await db
     .update(rawFile)
@@ -186,17 +186,19 @@ async function handleRecompute(job: {
 }
 
 export function startWorker() {
+  // One connection, shared by all four workers.
+  const conn = connection();
   // Concurrency 4: decoding is CPU-bound in the analytics service, so this is
   // sized to keep it busy without queueing requests inside it.
-  const parse = new Worker<ParseJob>(PARSE_QUEUE, handle, { connection, concurrency: 4 });
-  const load = new Worker<LoadJob>(LOAD_QUEUE, handleLoad, { connection, concurrency: 4 });
+  const parse = new Worker<ParseJob>(PARSE_QUEUE, handle, { connection: conn, concurrency: 4 });
+  const load = new Worker<LoadJob>(LOAD_QUEUE, handleLoad, { connection: conn, concurrency: 4 });
   // Concurrency 1: the rebuild deletes and rewrites the whole series, so two at
   // once for the same athlete would race.
-  const pmc = new Worker<PmcJob>(PMC_QUEUE, handlePmc, { connection, concurrency: 1 });
+  const pmc = new Worker<PmcJob>(PMC_QUEUE, handlePmc, { connection: conn, concurrency: 1 });
   // Concurrency 1 for the same reason as pmc, and because a recompute walks
   // every activity: two at once would double the load on the analytics service.
   const recompute = new Worker<RecomputeJob>(RECOMPUTE_QUEUE, handleRecompute, {
-    connection,
+    connection: conn,
     concurrency: 1,
     // A few thousand activities can take minutes; the default lock would expire
     // mid-run and the job would be picked up a second time.

@@ -8,6 +8,7 @@ WORKDIR /srv
 COPY package.json package-lock.json ./
 COPY packages/db/package.json ./packages/db/
 COPY packages/jobs/package.json ./packages/jobs/
+COPY packages/ingest/package.json ./packages/ingest/
 COPY services/api/package.json ./services/api/
 COPY services/ingest-worker/package.json ./services/ingest-worker/
 COPY apps/web/package.json ./apps/web/
@@ -19,6 +20,7 @@ RUN npm ci --omit=dev --workspace @lab/ingest-worker --include-workspace-root
 
 COPY packages/db ./packages/db
 COPY packages/jobs ./packages/jobs
+COPY packages/ingest ./packages/ingest
 COPY services/ingest-worker ./services/ingest-worker
 
 EXPOSE 8002
