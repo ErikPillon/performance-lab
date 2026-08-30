@@ -139,6 +139,26 @@ async function send<T>(path: string, method: string, body?: unknown): Promise<T>
   return payload as T;
 }
 
+export interface CurvePoint {
+  durationS: number;
+  value: number;
+  activityId: string;
+  startTime: string;
+}
+
+export interface CurveResponse {
+  sport: string;
+  metric: string | null;
+  points: CurvePoint[];
+  critical: {
+    critical_speed_mps: number;
+    d_prime_m: number;
+    r_squared: number;
+    points: number;
+  } | null;
+  available: string[];
+}
+
 export const api = {
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
   summary: (id: string) => get<Summary>(`/athletes/${id}/summary`),
@@ -164,6 +184,10 @@ export const api = {
   recompute: (id: string, body: { estimateThresholds?: boolean } = {}) =>
     send<{ jobId: string }>(`/athletes/${id}/recompute`, 'POST', body),
   recomputeStatus: (id: string) => get<RecomputeStatus>(`/athletes/${id}/recompute`),
+  curve: (id: string, params: { sport?: string; metric?: string; from?: string; to?: string } = {}) =>
+    get<CurveResponse>(`/athletes/${id}/curve`, params),
+  curveSports: (id: string) =>
+    get<{ sports: { sport: string; activities: number }[] }>(`/athletes/${id}/curve/sports`),
   streams: (id: string, points = 1500) =>
     get<StreamPayload>(`/activities/${id}/streams`, { points }),
 };

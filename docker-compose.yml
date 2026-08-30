@@ -90,6 +90,12 @@ services:
       API_PORT: "8003"
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
     ports: ["8003:8003"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -126,7 +132,10 @@ services:
     restart: unless-stopped
     ports: ["3100:80"]
     depends_on:
-      api: { condition: service_started }
+      # Healthy, not merely started: nginx proxies to the API on the first
+      # request, and `service_started` lets the page load before the API is
+      # listening — the visitor gets a connection refused rather than a chart.
+      api: { condition: service_healthy }
 
 volumes:
   pgdata:

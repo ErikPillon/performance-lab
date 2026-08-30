@@ -18,10 +18,11 @@ from typing import Any
 
 import numpy as np
 
+from .curves import critical_speed, duration_curve, mask_implausible_speed
 from .gap import adjusted_speed
 from .streams import mean_max, normalised, resample_1hz, rolling_mean
 
-CALC_VERSION = "load/1.0.0"
+CALC_VERSION = "load/1.5.0"
 
 # Friel's HR zones as fractions of lactate threshold HR.
 HR_ZONE_EDGES = (0.81, 0.89, 0.93, 0.99)
@@ -287,6 +288,22 @@ def compute_load(
     speed = grid.get("speed_mps")
     altitude = grid.get("altitude_m")
 
+    # Drop samples too fast to be this sport before anything derives from them.
+    # Done here rather than only for the curve so normalised graded pace, and
+    # therefore pace TSS, are cleaned by the same rule.
+    if speed is not None:
+        speed, masked = mask_implausible_speed(speed, sport)
+        # Write back, or anything reading the grid rather than this local keeps
+        # the unmasked series — which is how the raw-speed curve went on
+        # reporting 11.7 m/s from an activity that ended in a car.
+        grid["speed_mps"] = speed
+        if masked:
+            result["speed_samples_masked"] = masked
+            # Worth surfacing: a handful is sensor noise, a sustained run of
+            # them means the activity contains travel that was not training.
+            if masked >= 10:
+                result["quality_note"] = "contains_implausible_speed"
+
     if hr is not None:
         trimp = banister_trimp(hr, thresholds)
         result["trimp"] = round(trimp, 1) if trimp is not None else None
@@ -314,6 +331,29 @@ def compute_load(
 
     if sport == "swimming":
         result.update(swim_metrics(summary.get("distance_m"), duration_s, thresholds))
+
+    # Duration curve, computed here rather than in its own pass: the stream is
+    # already resampled and in memory, and reading every Parquet file a second
+    # time is the expensive part.
+    curve_input = {k: v for k, v in grid.items() if v is not None}
+    if speed is not None and sport == "running" and "stream_distance_diverges" not in flags:
+        # Grade-adjusted speed is the meaningful running curve — a hill repeat
+        # otherwise looks like a slow interval.
+        #
+        # Masked again after adjustment: the gradient multiplier can push a
+        # sample that passed the raw cap back above it, so a flat-equivalent
+        # 13 m/s survives from an 8 m/s sample on a climb. A flat-equivalent
+        # speed beyond the sport maximum is as impossible as a measured one.
+        gap = adjusted_speed(speed, altitude)
+        curve_input["gap_mps"], _ = mask_implausible_speed(gap, sport)
+    curves = duration_curve(curve_input)
+    if curves:
+        result["curves"] = curves
+        # Critical speed from whichever curve best represents sustained effort.
+        for metric in ("power_w", "gap_mps", "speed_mps"):
+            if metric in curves and (fit := critical_speed(curves[metric])):
+                result["critical"] = {"metric": metric, **fit}
+                break
 
     # Efficiency factor and decoupling both need a steady effort signal paired
     # with heart rate. Grade-adjusted speed stands in for power when there is no

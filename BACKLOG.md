@@ -87,7 +87,7 @@ side effects are the underlying problem.
 The dashboard currently answers "how much have I trained". These make it answer
 "how am I actually going".
 
-### ☐ 3. Power/pace duration curve
+### ☑ 3. Power/pace duration curve
 
 **Why.** The single most-loved chart in this category, and the foundation for
 critical power, critical swim speed and race prediction. The mean-max primitive
@@ -101,6 +101,27 @@ table — scanning every Parquet file per request will not stay fast.
 **Effort** medium. **Watch out for:** this is the first feature that needs a
 cross-activity aggregate, so it forces a decision about where derived
 aggregates live.
+
+**Done.** Curves are computed per activity during the load job — the stream is
+already resampled and in memory there — and stored in `activity_curve`. A
+date-ranged athlete curve is then a `DISTINCT ON` over an indexed table rather
+than a scan of every Parquet file, which would have been ~35 s and growing.
+`/curve` overlays a recent window against all-time, with critical speed and D′
+fitted from the aggregate.
+
+Two data problems surfaced and are now handled:
+
+*Vehicle contamination.* One activity holds 9+ m/s for 31 consecutive seconds
+with smooth acceleration — a watch left recording on the way home, not a GPS
+spike. Samples above a per-sport plausibility cap are excluded (not clipped —
+clipping invents a best effort at exactly the cap), and the activity is noted.
+The cap applies after grade adjustment too, since a gradient multiplier can push
+a sample that passed the raw check back over it.
+
+*GPS resolution.* Every sub-30-second best landed exactly on the cap, which is
+what noise pinned against a ceiling looks like. Consumer GPS carries 1–3 m/s of
+instantaneous error, so speed-derived curves now start at 30 s. Power and heart
+rate are measured directly and start lower.
 
 ### ☐ 4. Route maps
 
@@ -176,7 +197,7 @@ MinIO bucket replication, weekly encrypted offsite. Test a restore.
 
 ## Tier 3 — Analytical depth
 
-### ☐ 10. Critical power, critical swim speed, VO₂max and race prediction
+### ◔ 10. Critical power, critical swim speed, VO₂max and race prediction
 
 **Why.** Runalyze's signature features and the reason to prefer this over a
 spreadsheet.
@@ -186,6 +207,12 @@ bests, VO₂max estimate with trend, race prediction (Riegel / VDOT / critical
 speed) with a confidence range.
 
 **Depends on** #3. **Effort** medium.
+
+**Partly done.** The two-parameter model (`D = CS·t + D′`) is implemented and
+fitted over 2–20 minutes; the same algebra gives critical power from a power
+curve. On this data critical speed comes out at 4:35/km against an
+independently-estimated threshold pace of 4:27/km — two methods within 8 s/km,
+which is a reassuring cross-check. VO₂max and race prediction remain.
 
 ### ☐ 11. Zone distribution over time and polarisation index
 
@@ -260,6 +287,10 @@ Small, but each one is a wrong number rather than a missing feature.
 - ☐ **The `duration_estimate` fallback assumes** no-HR sessions resemble
   measured ones for that sport. 62% of cycling volume is estimated this way. If
   the strap comes off mainly on hard rides, those are systematically low.
+- ☐ **Grade adjustment inflates short efforts.** The 60 s grade-adjusted best
+  reads 2:37/km against 3:22/km raw — a 30% uplift from climbing. That is GAP
+  doing its job, but it makes the short end of the running curve read faster
+  than any pace actually run.
 - ☐ **Treadmill pace needs rescaling onto session distance** before it is used
   for anything. Flagged as `stream_distance_diverges`; currently those
   activities just fall through to HR.

@@ -286,6 +286,8 @@ npm -w @lab/ingest-worker test
   scored and any quality flags it carries
 - **Activity** — synced heart rate / speed / elevation / cadence traces, time in
   zones, and every load model that could be computed with the chosen one marked
+- **Curve** — mean-maximal duration curve per sport and metric, a recent window
+  overlaid on all-time, and critical speed / D′ fitted from the aggregate
 - **Thresholds** — what is currently in effect and where each value came from,
   an append-only editor, and a recompute control with progress and staleness
 

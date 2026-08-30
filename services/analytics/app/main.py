@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from .curves import DURATIONS, critical_speed
 from .downsample import bucket_min_max
 from .fit import PARSER_VERSION, dedupe_key, parse_fit
 from .load import CALC_VERSION, Thresholds, compute_load
@@ -186,6 +187,22 @@ def streams(key: str, points: int = 1500, channels: str | None = None) -> dict[s
         "channels": [c for c in df.columns if c != "t_s"],
         "series": {c: df[c].to_list() for c in df.columns},
     }
+
+
+class CriticalRequest(BaseModel):
+    curve: dict[str, float] = Field(description="duration in seconds -> best sustained average")
+
+
+@app.post("/curve/critical")
+def curve_critical(req: CriticalRequest) -> dict[str, Any]:
+    """Fit the two-parameter critical-speed (or critical-power) model.
+
+    Kept here rather than reimplemented in the API so there is one definition of
+    the model. `D = CS * t + D'`, fitted over 2-20 minutes.
+    """
+    curve = {int(k): float(v) for k, v in req.curve.items()}
+    fit = critical_speed(curve)
+    return {"fit": fit, "durations": list(DURATIONS)}
 
 
 @app.post("/thresholds/estimate")

@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { activity, activityLoad, db } from '@lab/db';
+import { activity, activityCurve, activityLoad, db } from '@lab/db';
 import { computeLoad, type LoadResult } from './analytics.js';
 import { resolveThresholds } from './thresholds.js';
 
@@ -92,7 +92,42 @@ export async function computeAndStore(
       },
     });
 
+  await storeCurves(row, result);
+
   return { ...result, load, load_method: method };
+}
+
+/**
+ * Replace an activity's stored duration curve.
+ *
+ * Delete-then-insert rather than upsert: a recompute can legitimately produce
+ * *fewer* points than before — a parser fix that trims a bad tail shortens the
+ * activity — and leaving the old longer durations behind would keep reporting
+ * bests the athlete never rode.
+ */
+async function storeCurves(row: ActivityRow, result: LoadResult): Promise<void> {
+  const curves = result.curves;
+  await db.delete(activityCurve).where(eq(activityCurve.activityId, row.id));
+  if (!curves) return;
+
+  const rows = Object.entries(curves).flatMap(([metric, points]) =>
+    Object.entries(points).map(([durationS, value]) => ({
+      activityId: row.id,
+      athleteId: row.athleteId,
+      sport: row.sport,
+      startTime: row.startTime,
+      metric,
+      durationS: Number(durationS),
+      value,
+    })),
+  );
+  if (rows.length === 0) return;
+
+  // Chunked: a long activity across four metrics can exceed the parameter
+  // limit of a single statement.
+  for (let i = 0; i < rows.length; i += 200) {
+    await db.insert(activityCurve).values(rows.slice(i, i + 200)).onConflictDoNothing();
+  }
 }
 
 /**

@@ -245,6 +245,36 @@ export const athleteDaily = pgTable('athlete_daily', {
   index('athlete_daily_date_idx').on(t.date),
 ]);
 
+/**
+ * Per-activity mean-maximal curve: the best average a channel sustained over
+ * each window length.
+ *
+ * Stored per activity and aggregated with MAX at query time rather than scanned
+ * on demand. A five-year athlete curve would otherwise re-read every Parquet
+ * file in the store — 35 s on this corpus and growing linearly — where this is
+ * an indexed grouped aggregate over a few tens of thousands of rows.
+ *
+ * `sport` and `startTime` are denormalised from `activity` so the hot query
+ * needs no join.
+ */
+export const activityCurve = pgTable('activity_curve', {
+  activityId: uuid('activity_id')
+    .notNull()
+    .references(() => activity.id, { onDelete: 'cascade' }),
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  sport: sportEnum('sport').notNull(),
+  startTime: timestamp('start_time', { withTimezone: true }).notNull(),
+  /** power_w | speed_mps | gap_mps | heart_rate */
+  metric: text('metric').notNull(),
+  durationS: integer('duration_s').notNull(),
+  /** Best average over any window of `durationS`, in the metric's own units. */
+  value: doublePrecision('value').notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.activityId, t.metric, t.durationS] }),
+  index('activity_curve_lookup_idx').on(t.athleteId, t.sport, t.metric, t.durationS),
+  index('activity_curve_time_idx').on(t.athleteId, t.startTime),
+]);
+
 export type Athlete = typeof athlete.$inferSelect;
 export type RawFile = typeof rawFile.$inferSelect;
 export type Activity = typeof activity.$inferSelect;
@@ -252,3 +282,4 @@ export type NewActivity = typeof activity.$inferInsert;
 export type ActivityLoad = typeof activityLoad.$inferSelect;
 export type NewActivityLoad = typeof activityLoad.$inferInsert;
 export type AthleteDaily = typeof athleteDaily.$inferSelect;
+export type ActivityCurve = typeof activityCurve.$inferSelect;

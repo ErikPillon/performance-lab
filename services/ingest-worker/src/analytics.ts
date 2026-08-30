@@ -80,6 +80,9 @@ export interface LoadResult {
   time_in_zones?: Record<string, number> | null;
   /** pace_tss / hr_tss where both exist; far from 1.0 means a threshold is off. */
   model_agreement?: number | null;
+  /** metric -> { duration in seconds -> best sustained average }. */
+  curves?: Record<string, Record<string, number>> | null;
+  critical?: { metric: string; critical_speed_mps: number; d_prime_m: number; r_squared: number } | null;
   calc_version: string;
 }
 

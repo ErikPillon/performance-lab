@@ -13,6 +13,7 @@ import { connection } from '@lab/jobs';
 import { env } from './env.js';
 import { activityRoutes } from './routes/activities.js';
 import { athleteRoutes } from './routes/athletes.js';
+import { curveRoutes } from './routes/curves.js';
 import { thresholdRoutes } from './routes/thresholds.js';
 
 const app = Fastify({ logger: { level: 'info' } });
@@ -23,6 +24,7 @@ app.get('/health', async () => ({ status: 'ok' }));
 await app.register(athleteRoutes);
 await app.register(activityRoutes);
 await app.register(thresholdRoutes);
+await app.register(curveRoutes);
 
 await app.listen({ port: env.port, host: '0.0.0.0' });
 app.log.info(`api listening on :${env.port}`);
