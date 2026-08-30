@@ -135,14 +135,31 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
-    ports: ["3100:80"]
+    environment:
+      # An IP or *.localhost address gets Caddy's internal CA; a real hostname
+      # triggers ACME. Changing this one variable is the whole upgrade path.
+      SITE_ADDRESS: ${SITE_ADDRESS:-https://localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
+      ACME_CA_DIRECTIVE: ${ACME_CA_DIRECTIVE:-}
+      # Only read when SITE_ADDRESS is a real hostname needing a DNS-01 challenge.
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+    ports:
+      - "${HTTP_PORT:-3100}:80"
+      - "${HTTPS_PORT:-3443}:443"
+    volumes:
+      # Certificates and the internal CA root survive restarts. Losing this
+      # means re-issuing, and on a public certificate that burns rate limit.
+      - caddydata:/data
+      - caddyconfig:/config
     depends_on:
-      # Healthy, not merely started: nginx proxies to the API on the first
+      # Healthy, not merely started: the edge proxies to the API on the first
       # request, and `service_started` lets the page load before the API is
       # listening — the visitor gets a connection refused rather than a chart.
       api: { condition: service_healthy }
 
 volumes:
+  caddydata:
+  caddyconfig:
   pgdata:
   redisdata:
   miniodata:

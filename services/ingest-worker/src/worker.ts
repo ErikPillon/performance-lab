@@ -88,12 +88,28 @@ async function handle(job: { data: ParseJob }): Promise<string> {
       qualityFlags: s.quality_flags,
       parserVersion: s.parser_version,
     })
-    // Re-parsing after a parser improvement should refresh the row in place,
-    // and the same session arriving from a second source should merge onto it,
-    // so the natural key wins over the surrogate id.
+    /**
+     * Re-parsing after a parser improvement refreshes the row in place, and the
+     * same session arriving from a second source merges onto it rather than
+     * double-counting load.
+     *
+     * `setWhere` makes which file wins deterministic. The same ride exported
+     * twice — once from the head unit, once from Garmin Connect — differs in
+     * resolution: one file here carried 3,450 samples across 10 channels and
+     * the other 13,664 across 17. Without this the last worker to finish won,
+     * and with four running in parallel that is a coin toss. Now the richer
+     * recording always wins regardless of order.
+     *
+     * `>=` rather than `>` so re-parsing the *same* file still refreshes it;
+     * that is the path every recompute takes.
+     */
     .onConflictDoUpdate({
       target: [activity.athleteId, activity.dedupeKey],
+      setWhere: sql`excluded.sample_count >= ${activity.sampleCount}`,
       set: {
+        // Provenance follows the data: without this the row kept pointing at
+        // whichever file created it, while its samples came from another.
+        rawFileId: sql`excluded.raw_file_id`,
         source: sql`excluded.source`,
         sport: sql`excluded.sport`,
         subSport: sql`excluded.sub_sport`,

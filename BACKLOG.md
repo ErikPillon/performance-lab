@@ -229,7 +229,7 @@ per-file progress and dedupe feedback ("already imported").
 
 **Effort** small. **Depends on** #7 for anything multi-user.
 
-### ☐ 9. TLS and real deployment on 192.168.40.100
+### ◔ 9. TLS and real deployment on 192.168.40.100
 
 **What.** Caddy with a Cloudflare DNS-01 challenge for a real certificate on the
 LAN IP — needed for Secure cookies and WebCrypto, and self-signed certs will
@@ -237,6 +237,29 @@ waste hours. Postgres streaming replica plus pgBackRest to the second box,
 MinIO bucket replication, weekly encrypted offsite. Test a restore.
 
 **Effort** medium. **Depends on** #7 before exposing anything.
+
+**Done — TLS.** Caddy replaces nginx as the edge: it terminates TLS, serves the
+built app and proxies `/api` on one origin. Which certificate it obtains is
+decided entirely by `SITE_ADDRESS` — an IP or `*.localhost` address gets one
+from Caddy's own internal CA with no account, token or internet, and a real
+hostname triggers ACME over a DNS-01 challenge, which is the only option for a
+server behind NAT.
+
+Session cookies are now `__Secure-`, `HttpOnly`, `Secure`, `SameSite=Lax`.
+Security headers include HSTS and a CSP tight enough to be worth having:
+`script-src 'self'`, `connect-src 'self'`, and map tiles as the only permitted
+third party. Verified against the real app — the map, charts and auth all work
+under it.
+
+**Still open — backup and replication:**
+
+- ☐ **Postgres streaming replica and pgBackRest to the second box.** The
+  database currently exists in exactly one place.
+- ☐ **MinIO bucket replication**, same reasoning: the raw FIT blobs are the
+  thing everything else is rebuilt from, and losing them is the one
+  unrecoverable failure.
+- ☐ **Weekly encrypted offsite snapshot**, and an actual restore rehearsal.
+  Untested backups are not backups.
 
 ---
 
@@ -340,6 +363,10 @@ Small, but each one is a wrong number rather than a missing feature.
   is pinned, but compiling to JavaScript would drop a build tool and its native
   esbuild binary from the runtime image — the same binary that broke the image
   build until the Dockerfiles moved to `npm ci`.
+- ☐ **The corpus now contains one ride exported twice**, collapsed correctly by
+  the dedupe key. Worth knowing that duplicates exist rather than assuming one
+  file is one session — a test encoded that assumption and had to be corrected
+  when the second export arrived.
 - ☐ **Route tiles leak location to a third party by default.** Every map view
   tells the public OSM tile server roughly where you train. Self-hosting tiles
   closes it; `VITE_MAP_TILES` is already wired for that.

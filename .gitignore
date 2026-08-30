@@ -109,3 +109,6 @@ services/analytics/.venv/
 lab/.venv/
 lab/*.duckdb
 data/
+
+# Caddy internal CA root, extracted for local trust. Machine-specific.
+caddy-root-ca.crt

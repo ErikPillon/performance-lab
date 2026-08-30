@@ -189,15 +189,45 @@ Ports are deliberately offset (5433 / 6380 / 9100) to coexist with the
 ### Everything in Docker
 
 ```bash
-cp .env.example .env      # then set POSTGRES_PASSWORD and S3_SECRET_KEY
+cp .env.example .env   # set POSTGRES_PASSWORD, S3_SECRET_KEY, BETTER_AUTH_SECRET
 docker compose --profile apps up -d --build
-npm run db:migrate        # first run only
+npm run db:migrate     # first run only
 ```
 
-Dashboard at **http://localhost:3100**. nginx serves the built SPA and proxies
-`/api` to the API container, so the browser stays on one origin: no CORS, and no
-API URL baked into the bundle — the same image runs on localhost, on the LAN box
-and behind a public hostname.
+Dashboard at **https://localhost**. Caddy terminates TLS, serves the built app
+and proxies `/api` to the API container, so the browser stays on one origin: no
+CORS, no API URL baked into the bundle, and the session cookie is first-party.
+
+Create an account on first visit — the first one claims any athlete imported
+before authentication existed.
+
+### Certificates
+
+`SITE_ADDRESS` decides everything, and Caddy needs no help choosing:
+
+| SITE_ADDRESS | certificate | needs |
+|---|---|---|
+| `https://localhost` | Caddy internal CA | nothing |
+| `https://192.168.40.100` | Caddy internal CA | nothing |
+| `https://lab.yourdomain.com` | Let's Encrypt via DNS-01 | `CLOUDFLARE_API_TOKEN` |
+
+The internal CA is real TLS — Secure cookies work, the connection is genuinely
+encrypted — but browsers will warn until its root is trusted. Extract and trust
+it with:
+
+```bash
+docker compose exec web cat /data/caddy/pki/authorities/local/root.crt > caddy-root-ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root-ca.crt
+```
+
+A home server behind NAT cannot answer an HTTP-01 challenge, which is why the
+public path uses DNS-01: Caddy proves control of the domain by writing a TXT
+record instead of receiving an inbound connection. Create a token at
+[Cloudflare](https://dash.cloudflare.com/profile/api-tokens) with the **Edit
+zone DNS** template, scoped to the single zone.
+
+While getting a deployment right, set `ACME_CA_DIRECTIVE` to the Let's Encrypt
+staging directory — the production endpoint rate-limits failed attempts hard.
 
 Infra alone (`postgres`, `redis`, `minio`) comes up without the profile:
 `npm run infra:up`. That is the mode to use while developing, with the services

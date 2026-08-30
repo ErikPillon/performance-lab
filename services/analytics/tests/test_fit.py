@@ -146,12 +146,38 @@ def test_unknown_channels_are_preserved(parsed):
     assert seen, "undecoded vendor channels were dropped"
 
 
-def test_dedupe_key_is_stable_and_distinguishing(parsed):
+def test_dedupe_key_is_stable(parsed):
     results, _ = parsed
-    keys: dict[str, list[str]] = {}
+    for _, s, _ in results:
+        assert dedupe_key(s) == dedupe_key(s), "dedupe_key is not deterministic"
+
+
+def test_colliding_files_really_are_the_same_session(parsed):
+    """Collisions are the point, not a failure — but only for the same ride.
+
+    Two files sharing a key must describe one session recorded twice: the same
+    ride exported from a head unit and from Garmin Connect differs in
+    resolution, not in what happened. This corpus contains exactly such a pair,
+    one with 3,450 samples and one with 13,664.
+
+    What would be a genuine bug is two *different* sessions colliding, which is
+    what this checks: same sport, and a distance that agrees.
+    """
+    results, _ = parsed
+    grouped: dict[str, list[tuple[str, dict]]] = {}
     for path, s, _ in results:
-        key = dedupe_key(s)
-        assert key == dedupe_key(s), "dedupe_key is not deterministic"
-        keys.setdefault(key, []).append(path.name)
-    collisions = {k: v for k, v in keys.items() if len(v) > 1}
-    assert not collisions, f"distinct activities collided: {collisions}"
+        grouped.setdefault(dedupe_key(s), []).append((path.name, s))
+
+    for key, members in grouped.items():
+        if len(members) == 1:
+            continue
+        sports = {s["sport"] for _, s in members}
+        assert len(sports) == 1, f"{key}: different sports collided: {sports}"
+
+        distances = [s["distance_m"] for _, s in members if s["distance_m"]]
+        if len(distances) > 1:
+            spread = (max(distances) - min(distances)) / max(distances)
+            assert spread < 0.02, (
+                f"{key}: files collided but describe different distances "
+                f"({[round(d) for d in distances]}) — these are separate sessions"
+            )
