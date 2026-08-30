@@ -192,6 +192,31 @@ export interface CurveResponse {
   available: string[];
 }
 
+export interface TrendPointRow {
+  activityId: string;
+  startTime: string;
+  efficiencyFactor: number | null;
+  decouplingPct: number | null;
+  avgHr: number | null;
+  durationS: number | null;
+  distanceM: number | null;
+}
+
+export interface TrendsResponse {
+  sport: string;
+  available: { sport: string; activities: number; withEf: number; withDecoupling: number }[];
+  /**
+   * Split by effort source as well as sport: efficiency factor is watts per
+   * beat with a power meter and metres-per-second per beat without, which are
+   * roughly sixty times apart and must never share a line.
+   */
+  groups: {
+    effortSource: 'power' | 'speed';
+    unit: string;
+    points: TrendPointRow[];
+  }[];
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -238,4 +263,6 @@ export const api = {
     get<{ sports: { sport: string; activities: number }[] }>(`/athletes/${id}/curve/sports`),
   streams: (id: string, points = 1500) =>
     get<StreamPayload>(`/activities/${id}/streams`, { points }),
+  trends: (id: string, params: { sport?: string; from?: string; to?: string } = {}) =>
+    get<TrendsResponse>(`/athletes/${id}/trends`, params),
 };

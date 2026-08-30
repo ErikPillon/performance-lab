@@ -16,6 +16,7 @@ import { HttpError, resolveActor } from './access.js';
 import { athleteRoutes } from './routes/athletes.js';
 import { authRoutes } from './routes/auth.js';
 import { curveRoutes } from './routes/curves.js';
+import { trendRoutes } from './routes/trends.js';
 import { grantRoutes } from './routes/grants.js';
 import { thresholdRoutes } from './routes/thresholds.js';
 
@@ -57,6 +58,7 @@ await app.register(athleteRoutes);
 await app.register(activityRoutes);
 await app.register(thresholdRoutes);
 await app.register(curveRoutes);
+await app.register(trendRoutes);
 await app.register(grantRoutes);
 
 await app.listen({ port: env.port, host: '0.0.0.0' });

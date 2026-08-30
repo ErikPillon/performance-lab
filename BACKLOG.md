@@ -175,7 +175,7 @@ duration totals, planned-vs-actual once #12 exists.
 
 **Effort** medium.
 
-### ☐ 6. Trend charts for efficiency factor and decoupling
+### ☑ 6. Trend charts for efficiency factor and decoupling
 
 **Why.** These are already computed per activity and only visible one session at
 a time. In trend they are the clearest "is my aerobic fitness improving"
@@ -185,7 +185,39 @@ shows that.
 
 **What.** EF and decoupling over time, per sport, with a rolling median.
 
-**Effort** small. Data already exists in `activity_load`.
+**Done.** `/trends` plots both metrics per sport: individual sessions as faint
+dots, a rolling median as the line. Drawing both matters — the scatter is wide
+enough that a line alone would imply a precision the data does not have.
+
+On the real corpus the signal is larger than the backlog estimated. Running,
+2024-06 to 2026-08:
+
+| | start | end | change |
+|---|---|---|---|
+| Efficiency factor | 0.0161 | 0.0215 | **+34%** |
+| Average heart rate | 165.5 | 136.0 bpm | **−17.8%** |
+| Decoupling | 10.6% | 2.2% | **−79%** |
+
+More effort per heartbeat at a much lower heart rate, and durability moving from
+poor to well-supported. The page states that pairing in words above the charts,
+because efficiency factor alone moves with terrain and pacing — it only means
+something read against heart rate.
+
+Two things worth recording:
+
+- **Series are keyed on effort source, not just sport.** EF is `mean effort /
+  mean HR`, and effort is watts with a power meter and grade-adjusted speed
+  without — roughly sixty times apart. This corpus happens to be cleanly split
+  (running all speed, cycling all power), so mixing them would have looked fine
+  until one ride without a meter drew a 60× cliff that reads as fitness
+  collapse.
+- **The smoothing window is calendar time, not a count of sessions.** "The last
+  9 activities" spans three weeks in a block and five months around an injury.
+  Layoffs longer than the window break the line rather than being bridged: the
+  median is well-defined on both sides of a gap, so nothing is null and a
+  three-month break was otherwise drawn as three months of steady improvement.
+
+**Effort** small. Data already existed in `activity_load`.
 
 ---
 
