@@ -164,7 +164,10 @@ export const api = {
   summary: (id: string) => get<Summary>(`/athletes/${id}/summary`),
   pmc: (id: string, from?: string, to?: string) =>
     get<{ series: PmcDay[] }>(`/athletes/${id}/pmc`, { from, to }),
-  activities: (id: string, params: { limit?: number; offset?: number; sport?: string } = {}) =>
+  activities: (
+    id: string,
+    params: { limit?: number; offset?: number; sport?: string; from?: string; to?: string } = {},
+  ) =>
     get<{ activities: ActivityRow[]; total: number; limit: number; offset: number }>(
       `/athletes/${id}/activities`,
       params,

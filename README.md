@@ -288,6 +288,8 @@ npm -w @lab/ingest-worker test
   heart rate / speed / elevation / cadence traces (hovering a trace moves the
   map marker), time in zones, and every load model that could be computed with
   the chosen one marked
+- **Calendar** — week-per-row grid with session chips, weekly hours and load,
+  week-on-week change, and the model's risk flags on the weeks that earned them
 - **Curve** — mean-maximal duration curve per sport and metric, a recent window
   overlaid on all-time, and critical speed / D′ fitted from the aggregate
 - **Thresholds** — what is currently in effect and where each value came from,

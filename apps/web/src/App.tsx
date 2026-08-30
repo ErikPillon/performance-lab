@@ -4,6 +4,7 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api } from './lib/api';
 import { Activities } from './pages/Activities';
 import { ActivityDetail } from './pages/ActivityDetail';
+import { Calendar } from './pages/Calendar';
 import { Curve } from './pages/Curve';
 import { Dashboard } from './pages/Dashboard';
 import { Thresholds } from './pages/Thresholds';
@@ -65,6 +66,7 @@ export default function App() {
     <nav style={{ display: 'flex', gap: 2 }}>
       {[
         { to: '/', label: 'Dashboard' },
+        { to: '/calendar', label: 'Calendar' },
         { to: '/activities', label: 'Activities' },
         { to: '/curve', label: 'Curve' },
         { to: '/thresholds', label: 'Thresholds' },
@@ -97,6 +99,7 @@ export default function App() {
         <Route path="/" element={<Dashboard athleteId={athlete.id} />} />
         <Route path="/activities" element={<Activities athleteId={athlete.id} />} />
         <Route path="/activities/:id" element={<ActivityDetail />} />
+        <Route path="/calendar" element={<Calendar athleteId={athlete.id} />} />
         <Route path="/curve" element={<Curve athleteId={athlete.id} />} />
         <Route path="/thresholds" element={<Thresholds athleteId={athlete.id} />} />
         <Route path="*" element={<Navigate to="/" replace />} />

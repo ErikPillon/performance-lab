@@ -149,7 +149,7 @@ tiles, so a firewalled or offline server still shows the track. Tiles default to
 public OpenStreetMap, which means the viewed area is visible to that provider;
 `VITE_MAP_TILES` points it at your own tile server.
 
-### ☐ 5. Calendar / weekly view
+### ☑ 5. Calendar / weekly view
 
 **Why.** Triathletes plan and review in weeks. A reverse-chronological list
 cannot show that this week is a recovery week, or that Tuesday is always the
@@ -303,6 +303,10 @@ Small, but each one is a wrong number rather than a missing feature.
 - ☐ **The `duration_estimate` fallback assumes** no-HR sessions resemble
   measured ones for that sport. 62% of cycling volume is estimated this way. If
   the strap comes off mainly on hard rides, those are systematically low.
+- ☐ **The daily rollup buckets by UTC date, the calendar by local date.** They
+  agree on every activity in this dataset — all sessions are daytime in
+  CET/CEST — but a session starting just after local midnight, or any training
+  done after long-haul travel, would land on different days in the two views.
 - ☐ **Route tiles leak location to a third party by default.** Every map view
   tells the public OSM tile server roughly where you train. Self-hosting tiles
   closes it; `VITE_MAP_TILES` is already wired for that.
