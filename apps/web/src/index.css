@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'uplot/dist/uPlot.min.css';
+@import 'leaflet/dist/leaflet.css';
 
 /*
  * Tokens are defined once on :root and redefined under both the media query and
@@ -144,3 +145,26 @@ table.data tbody tr:last-child td { border-bottom: none; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* Leaflet chrome, matched to the app rather than its own light default. */
+.leaflet-container { background: var(--panel-2); font: inherit; }
+.leaflet-control-zoom a {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--panel) 85%, transparent) !important;
+  color: var(--faint) !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a { color: var(--muted) !important; }
+.leaflet-tooltip {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+/* A light basemap under a dark UI is glaring, and the route must stay the
+   brightest thing on screen either way. */
+.map-tiles-dark { filter: brightness(0.75) saturate(0.6) contrast(1.05); }

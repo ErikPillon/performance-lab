@@ -48,20 +48,43 @@ export function Chart({
   options,
   height = 260,
   themeVersion = 0,
+  onCursor,
 }: {
   data: uPlot.AlignedData;
   options: Omit<uPlot.Options, 'width' | 'height'>;
   height?: number;
   /** From useThemeVersion(); rebuilds the canvas when the palette changes. */
   themeVersion?: number;
+  /** Fires with the hovered x value, or null on leave. Lets a map follow the charts. */
+  onCursor?: (x: number | null) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
+  // Held in a ref so changing the handler does not rebuild the chart.
+  const cursorHandler = useRef(onCursor);
+  cursorHandler.current = onCursor;
 
   useEffect(() => {
     if (!host.current) return;
     const width = host.current.clientWidth || 600;
-    const chart = new uPlot({ ...options, width, height } as uPlot.Options, data, host.current);
+
+    const withHooks: uPlot.Options = {
+      ...options,
+      width,
+      height,
+      hooks: {
+        ...options.hooks,
+        setCursor: [
+          ...(options.hooks?.setCursor ?? []),
+          (u: uPlot) => {
+            const idx = u.cursor.idx;
+            cursorHandler.current?.(idx == null ? null : (u.data[0][idx] as number));
+          },
+        ],
+      },
+    } as uPlot.Options;
+
+    const chart = new uPlot(withHooks, data, host.current);
     plot.current = chart;
 
     const observer = new ResizeObserver(([entry]) => {

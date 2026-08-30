@@ -284,14 +284,23 @@ npm -w @lab/ingest-worker test
   breakdown, heart-rate zone distribution, recent activities, current thresholds
 - **Activities** — filterable, paginated list showing how each session was
   scored and any quality flags it carries
-- **Activity** — synced heart rate / speed / elevation / cadence traces, time in
-  zones, and every load model that could be computed with the chosen one marked
+- **Activity** — route map coloured by speed, heart rate or elevation, synced
+  heart rate / speed / elevation / cadence traces (hovering a trace moves the
+  map marker), time in zones, and every load model that could be computed with
+  the chosen one marked
 - **Curve** — mean-maximal duration curve per sport and metric, a recent window
   overlaid on all-time, and critical speed / D′ fitted from the aggregate
 - **Thresholds** — what is currently in effect and where each value came from,
   an append-only editor, and a recompute control with progress and staleness
 
 Two decisions worth knowing about:
+
+**Maps are Leaflet, not MapLibre.** Raster tiles and a polyline is the whole
+job — ~42 kB with no WebGL, worker or animation-frame dependency, against
+MapLibre's ~250 kB. The route draws from stored coordinates and renders with or
+without tiles, so an offline server still shows the track. Tiles default to
+public OpenStreetMap, which reveals the viewed area to that provider; set
+`VITE_MAP_TILES` to your own tile server to keep it local.
 
 **Charts are uPlot, not an SVG library.** The fitness series is ~2,000 daily
 points and a single ride stream is thousands more; SVG charts allocate a DOM
@@ -315,7 +324,6 @@ that is almost entirely flat decay.
 - VO2max estimation and race prediction
 - Auth (Better Auth) and the coach↔athlete grant model — the API is currently
   unauthenticated and assumes a single athlete
-- Route maps (MapLibre) on the activity view
 - Upload from the browser; the upload endpoint still lives on the ingest worker
   rather than the API
 - Strava connector (webhook-first) behind a Cloudflare Tunnel

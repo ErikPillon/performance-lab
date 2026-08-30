@@ -123,7 +123,7 @@ what noise pinned against a ceiling looks like. Consumer GPS carries 1–3 m/s o
 instantaneous error, so speed-derived curves now start at 30 s. Power and heart
 rate are measured directly and start lower.
 
-### ☐ 4. Route maps
+### ☑ 4. Route maps
 
 **Why.** 160 of 252 activities carry GPS and none of it is visible. Also the
 cheapest way to make the activity view feel finished.
@@ -132,6 +132,22 @@ cheapest way to make the activity view feel finished.
 channels already in the stream payload, cursor synced with the existing charts.
 
 **Effort** small-medium. No new backend work — the data is already served.
+
+**Done.** Leaflet, not MapLibre. The job is raster tiles and a polyline, which
+Leaflet does in ~42 kB with no WebGL, no worker and no animation-frame
+dependency; MapLibre's ~250 kB earns its place for vector basemaps, terrain or
+rotation, none of which a route view uses.
+
+The track is coloured by speed, heart rate or elevation in eight bands
+(bucketed, so a 1,400-point track is eight layers rather than 1,400), the map
+marker follows the chart cursor, and panel height adapts to the route's own
+proportions — a 9.1 × 1.9 km out-and-back was wasting most of a fixed wide
+panel.
+
+The route is drawn from our own stored coordinates and renders with or without
+tiles, so a firewalled or offline server still shows the track. Tiles default to
+public OpenStreetMap, which means the viewed area is visible to that provider;
+`VITE_MAP_TILES` points it at your own tile server.
 
 ### ☐ 5. Calendar / weekly view
 
@@ -287,6 +303,9 @@ Small, but each one is a wrong number rather than a missing feature.
 - ☐ **The `duration_estimate` fallback assumes** no-HR sessions resemble
   measured ones for that sport. 62% of cycling volume is estimated this way. If
   the strap comes off mainly on hard rides, those are systematically low.
+- ☐ **Route tiles leak location to a third party by default.** Every map view
+  tells the public OSM tile server roughly where you train. Self-hosting tiles
+  closes it; `VITE_MAP_TILES` is already wired for that.
 - ☐ **Grade adjustment inflates short efforts.** The 60 s grade-adjusted best
   reads 2:37/km against 3:22/km raw — a 30% uplift from climbing. That is GAP
   doing its job, but it makes the short end of the running curve read faster

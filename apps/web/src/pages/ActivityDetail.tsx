@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import uPlot from 'uplot';
 import { api, type StreamPayload } from '../lib/api';
 import { Chart, themeColor, useThemeVersion } from '../components/Chart';
+import { RouteMap, type ColorBy } from '../components/RouteMap';
 import { Empty } from '../components/PmcChart';
 import { Badge, Bar, ErrorNote, Loading, Panel, SportDot, Stat } from '../components/ui';
 import * as f from '../lib/format';
@@ -37,8 +38,19 @@ const ZONE_COLOR: Record<string, string> = {
   z5_vo2max: 'var(--bad)',
 };
 
+const COLOR_BY: { value: ColorBy; label: string }[] = [
+  { value: 'speed_mps', label: 'Speed' },
+  { value: 'heart_rate', label: 'Heart rate' },
+  { value: 'altitude_m', label: 'Elevation' },
+  { value: 'none', label: 'Flat' },
+];
+
 export function ActivityDetail() {
   const { id = '' } = useParams();
+  // Shared between the charts and the map: hovering a trace moves the map
+  // marker, which is the whole point of showing them on one page.
+  const [cursorT, setCursorT] = useState<number | null>(null);
+  const [colorBy, setColorBy] = useState<ColorBy>('speed_mps');
   const detail = useQuery({ queryKey: ['activity', id], queryFn: () => api.activity(id) });
   const streams = useQuery({
     queryKey: ['streams', id],
@@ -61,6 +73,7 @@ export function ActivityDetail() {
     ? ZONE_ORDER.filter((z) => rawZones[z] != null).map((z) => [z, rawZones[z]!] as const)
     : [];
   const zoneTotal = zones.reduce((sum, [, v]) => sum + v, 0);
+  const hasRoute = !!streams.data?.channels.includes('lat');
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div>
@@ -101,6 +114,39 @@ export function ActivityDetail() {
         />
       </div>
 
+      {hasRoute && (
+        <Panel
+          title="Route"
+          subtitle="Hover the traces below to follow the position"
+          right={
+            <div style={{ display: 'flex', gap: 4 }}>
+              {COLOR_BY.filter((c) => c.value === 'none' || streams.data!.channels.includes(c.value)).map(
+                (c) => (
+                  <button
+                    key={c.value}
+                    onClick={() => setColorBy(c.value)}
+                    style={{
+                      fontSize: 12,
+                      padding: '3px 9px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      border: `1px solid ${c.value === colorBy ? 'var(--accent)' : 'var(--border)'}`,
+                      background:
+                        c.value === colorBy ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
+                      color: c.value === colorBy ? 'var(--accent)' : 'var(--muted)',
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                ),
+              )}
+            </div>
+          }
+        >
+          <RouteMap payload={streams.data!} colorBy={colorBy} cursorT={cursorT} />
+        </Panel>
+      )}
+
       <Panel title="Streams" subtitle={
         streams.data
           ? `${streams.data.sample_count.toLocaleString()} samples, drawn at ${streams.data.returned.toLocaleString()} points`
@@ -111,7 +157,7 @@ export function ActivityDetail() {
         ) : streams.isLoading ? (
           <Loading what="streams" />
         ) : (
-          <StreamCharts payload={streams.data!} />
+          <StreamCharts payload={streams.data!} onCursor={setCursorT} />
         )}
       </Panel>
 
@@ -179,7 +225,13 @@ function Row({ label, value, chosen, hint }: { label: string; value: string; cho
   );
 }
 
-function StreamCharts({ payload }: { payload: StreamPayload }) {
+function StreamCharts({
+  payload,
+  onCursor,
+}: {
+  payload: StreamPayload;
+  onCursor?: (t: number | null) => void;
+}) {
   const themeVersion = useThemeVersion();
   const charts = useMemo(() => {
     const t = (payload.series.t_s ?? []).map((v) => (v ?? 0) as number);
@@ -203,6 +255,7 @@ function StreamCharts({ payload }: { payload: StreamPayload }) {
             data={data}
             height={i === 0 ? 150 : 110}
             themeVersion={themeVersion}
+            onCursor={onCursor}
             options={{
               cursor: {
                 drag: { x: true, y: false },
