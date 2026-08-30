@@ -173,12 +173,13 @@ as fast and produces a visibly different curve for identical training.
 | path | what |
 |---|---|
 | `packages/db` | Drizzle schema + migrations; owns the Postgres contract |
-| `services/ingest-worker` | upload API, BullMQ parse worker, backfill CLI |
+| `services/ingest-worker` | BullMQ parse worker, backfill CLI |
 | `services/analytics` | FastAPI: FIT decode, load models, PMC, Parquet |
-| `services/api` | read API, threshold writes, recompute control |
+| `services/api` | the only public surface: reads, uploads, threshold writes, recompute |
 | `packages/jobs` | queue definitions shared by the API and the worker |
+| `packages/ingest` | content-addressed file intake, shared by the upload route and the backfill |
 | `lab` | DuckDB exploration over the same Parquet, no export step |
-| `apps/web` | dashboard: PMC, activity list, per-activity streams |
+| `apps/web` | dashboard: PMC, activity list, trends, per-activity streams, import |
 | `inputs` | local FIT corpus, gitignored |
 
 ## Running it

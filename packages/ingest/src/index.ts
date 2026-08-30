@@ -1,13 +1,17 @@
 import { and, eq } from 'drizzle-orm';
 import { db, rawFile } from '@lab/db';
 import { parseQueue, type ParseJob } from '@lab/jobs';
-import { putRaw, rawKey, sha256 } from './storage.js';
+import { putRaw } from './storage.js';
+import { rawKey, sha256 } from './keys.js';
 
 export interface IngestResult {
   rawFileId: string;
   sha256: string;
   status: 'queued' | 'duplicate';
 }
+
+export { rawKey, sha256 } from './keys.js';
+export { isConnected, putRaw } from './storage.js';
 
 /**
  * Accept a file into the pipeline.

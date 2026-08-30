@@ -265,14 +265,36 @@ the API cannot be used to discover that an id exists.
 - ☐ **Session revocation UI.** Sessions are listed in the database but there is
   no "sign out everywhere".
 
-### ☐ 8. Browser upload
+### ☑ 8. Browser upload
 
 **Why.** Importing is CLI-only. The upload endpoint also still lives on the
 ingest worker rather than the API, which splits the public HTTP surface across
 two services.
 
-**What.** Move the upload route to `services/api`, add a drag-and-drop view with
-per-file progress and dedupe feedback ("already imported").
+**Done.** The route is on `services/api` and `/upload` is a drag-and-drop view
+with per-file progress and dedupe feedback.
+
+Worth recording: this was worse than "split across two services". The edge proxy
+only ever forwarded `/api/*`, and the worker's port is not published in
+production at all — so the upload endpoint was **unreachable in any real
+deployment**. Importing was CLI-only whether or not that was the intent.
+
+`ingestBytes` and the object store moved into `packages/ingest`, shared by the
+upload route and the backfill CLI. The S3 client is built on first use, same
+lesson as [2a]: the old module read credentials at import and threw on a missing
+key, so anything that transitively imported it failed before its own first line.
+A pleasing consequence — a duplicate upload now returns without ever
+constructing an S3 client, because the hash check short-circuits first.
+
+Uploads go one file per request at concurrency 3, not one batch request. The
+endpoint still accepts a batch, but then progress is only known for the whole
+batch and a season of exports becomes one half-gigabyte request that fails as a
+unit.
+
+Rejections are per file: an unreadable file reports itself and the other
+nineteen still land. Non-FIT parts are still drained before being rejected — an
+unread multipart part blocks the ones behind it, so a single `.jpg` would
+otherwise hang the rest of the upload.
 
 **Effort** small. **Depends on** #7 for anything multi-user.
 

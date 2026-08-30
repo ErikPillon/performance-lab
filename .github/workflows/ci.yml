@@ -39,14 +39,14 @@ jobs:
       - run: npm ci
       - name: typecheck
         run: |
-          for ws in packages/db packages/jobs services/api services/ingest-worker apps/web; do
+          for ws in packages/db packages/jobs packages/ingest services/api services/ingest-worker apps/web; do
             echo "::group::$ws"
             (cd "$ws" && npx tsc --noEmit)
             echo "::endgroup::"
           done
       - name: test
         run: |
-          for ws in packages/db packages/jobs services/api services/ingest-worker apps/web; do
+          for ws in packages/db packages/jobs packages/ingest services/api services/ingest-worker apps/web; do
             echo "::group::$ws"
             npm test --workspace "$ws"
             echo "::endgroup::"

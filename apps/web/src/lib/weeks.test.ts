@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildWeeks, countsTowardTotals, localDate, weekStart } from './weeks.js';
 import type { ActivityRow, PmcDay } from './api.js';
+import * as fmt from './format.js';
 
 function activity(partial: Partial<ActivityRow> & { startTime: string }): ActivityRow {
   return {
@@ -137,4 +138,13 @@ test('model values are read from the last day of the week', () => {
   const weeks = buildWeeks([], pmc, new Date('2025-09-22T00:00:00Z'), new Date('2025-09-28T00:00:00Z'));
   assert.equal(weeks[0]!.ctl, 40);
   assert.equal(weeks[0]!.acwr, 1.6);
+});
+
+test('file sizes render in the unit a human would use', () => {
+  // A typical FIT file is tens of kilobytes; a fixed MB unit showed almost
+  // every real upload as "0.0 MB".
+  assert.equal(fmt.bytes(512), '512 B');
+  assert.equal(fmt.bytes(20 * 1024), '20 KB');
+  assert.equal(fmt.bytes(1024 * 1024), '1.0 MB');
+  assert.equal(fmt.bytes(26 * 1024 * 1024), '26.0 MB');
 });

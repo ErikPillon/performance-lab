@@ -22,11 +22,11 @@ run() {
 }
 
 # Type errors are the cheapest class of bug to catch, so they go first.
-for ws in packages/db packages/jobs services/api services/ingest-worker apps/web; do
+for ws in packages/db packages/jobs packages/ingest services/api services/ingest-worker apps/web; do
   run "typecheck $ws" bash -c "cd $ws && npx tsc --noEmit"
 done
 
-for ws in packages/db packages/jobs services/api services/ingest-worker apps/web; do
+for ws in packages/db packages/jobs packages/ingest services/api services/ingest-worker apps/web; do
   run "test $ws" npm test --silent --workspace "$ws"
 done
 

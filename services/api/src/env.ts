@@ -8,8 +8,9 @@ export const env = {
   databaseUrl: required('DATABASE_URL'),
   analyticsUrl: process.env.ANALYTICS_URL ?? 'http://localhost:8001',
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
-  ingestUrl: process.env.INGEST_URL ?? 'http://localhost:8002',
   port: Number(process.env.API_PORT ?? 8003),
+  /** Matches the worker's cap, so the two write paths agree on a limit. */
+  maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES ?? 25 * 1024 * 1024),
   /**
    * Credentialed requests cannot use a wildcard origin, so once cookies are in
    * play this must name the real origin. Defaults to the dev app.

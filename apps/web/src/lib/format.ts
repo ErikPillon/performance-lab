@@ -106,3 +106,15 @@ export function formLabel(tsb: number): { label: string; color: string } {
   if (tsb >= -30) return { label: 'Productive', color: 'var(--accent)' };
   return { label: 'Overreaching', color: 'var(--bad)' };
 }
+
+/**
+ * File size in the unit a human would use.
+ *
+ * A typical FIT file is 20 KB to 2 MB, so a fixed MB unit renders almost every
+ * real upload as "0.0 MB".
+ */
+export function bytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
