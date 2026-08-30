@@ -102,9 +102,13 @@ jobs:
         run: npm run db:migrate
 
   images:
-    name: build & push images
+    # Builds on every PR, pushes only from main. Building here is the point:
+    # otherwise a merge to main is the first time these Dockerfiles ever run,
+    # and a broken one turns the default branch red instead of the PR. The
+    # layer cache is shared between the two, so the push on main mostly reuses
+    # what the PR already built.
+    name: build images
     needs: [node, python, migrations]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -121,6 +125,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -143,7 +148,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: true
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
