@@ -128,4 +128,55 @@ export async function trendRoutes(app: FastifyInstance) {
         })),
     };
   });
+
+  /**
+   * Zone distribution per period.
+   *
+   * The dashboard already shows one all-time aggregate, which answers "what is
+   * my mix" and not "is my mix drifting" — and drift is the interesting
+   * question. An athlete who has quietly slid from polarised into a permanent
+   * tempo grind sees no change at all in a single stacked bar.
+   */
+  app.get<{
+    Params: { id: string };
+    Querystring: { bucket?: 'week' | 'month'; sport?: string; from?: string; to?: string };
+  }>('/athletes/:id/zones/trend', async (req) => {
+    await requireAthleteAccess(req, req.params.id);
+
+    // Whitelisted rather than interpolated: this lands inside date_trunc, and
+    // the query string must never reach SQL as an identifier.
+    const bucket = req.query.bucket === 'week' ? 'week' : 'month';
+
+    const filters = [sql`${activityLoad.athleteId} = ${req.params.id}::uuid`];
+    if (req.query.sport) filters.push(sql`${activity.sport} = ${req.query.sport}`);
+    if (req.query.from) filters.push(sql`${activityLoad.startTime} >= ${req.query.from}::date`);
+    if (req.query.to) filters.push(sql`${activityLoad.startTime} < (${req.query.to}::date + 1)`);
+
+    const rows = await db.execute<{ bucket: string; zone: string; seconds: number }>(sql`
+      SELECT to_char(date_trunc(${bucket}, ${activityLoad.startTime}), 'YYYY-MM-DD') AS bucket,
+             z.key AS zone,
+             sum(z.value::int)::int AS seconds
+      FROM ${activityLoad}
+      JOIN ${activity} ON ${activity.id} = ${activityLoad.activityId},
+           jsonb_each_text(${activityLoad.timeInZones}) AS z(key, value)
+      WHERE ${activityLoad.timeInZones} IS NOT NULL AND ${sql.join(filters, sql` AND `)}
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    `);
+
+    // Pivoted here rather than in the client: the client wants one row per
+    // period, and doing it in SQL would mean naming every zone in the query.
+    const periods = new Map<string, Record<string, number>>();
+    for (const row of rows) {
+      const entry = periods.get(row.bucket) ?? {};
+      entry[row.zone] = Number(row.seconds);
+      periods.set(row.bucket, entry);
+    }
+
+    return {
+      bucket,
+      periods: [...periods.entries()].map(([start, zones]) => ({ start, zones })),
+    };
+  });
+
 }

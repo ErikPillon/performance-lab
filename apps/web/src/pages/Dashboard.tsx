@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { PmcChart, PmcLegend, Empty } from '../components/PmcChart';
 import { Badge, Bar, ErrorNote, Loading, Panel, SportDot, Stat } from '../components/ui';
 import * as f from '../lib/format';
+import { ZONE_COLOR, ZONE_LABEL } from '../lib/zones';
 
 const RANGES = [
   { label: '3m', days: 90 },
@@ -13,14 +14,6 @@ const RANGES = [
   { label: 'All', days: 0 },
 ];
 
-const ZONE_LABEL: Record<string, string> = {
-  z1_recovery: 'Z1 Recovery',
-  z2_aerobic: 'Z2 Aerobic',
-  z3_tempo: 'Z3 Tempo',
-  z4_threshold: 'Z4 Threshold',
-  z5_vo2max: 'Z5 VO₂max',
-};
-const ZONE_COLOR = ['#64748b', 'var(--run)', 'var(--warn)', 'var(--atl)', 'var(--bad)'];
 
 export function Dashboard({ athleteId }: { athleteId: string }) {
   const [range, setRange] = useState(RANGES[2]!);
@@ -171,7 +164,7 @@ export function Dashboard({ athleteId }: { athleteId: string }) {
             <Empty>No zone data — thresholds may not be set.</Empty>
           ) : (
             <div style={{ display: 'grid', gap: 12 }}>
-              {(zones.data?.zones ?? []).map((z, i) => (
+              {(zones.data?.zones ?? []).map((z) => (
                 <div key={z.zone}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
                     <span>{ZONE_LABEL[z.zone] ?? z.zone}</span>
@@ -179,7 +172,7 @@ export function Dashboard({ athleteId }: { athleteId: string }) {
                       {f.hours(z.seconds)} h · {Math.round((z.seconds / zoneTotal) * 100)}%
                     </span>
                   </div>
-                  <Bar fraction={z.seconds / zoneTotal} color={ZONE_COLOR[i] ?? 'var(--other)'} />
+                  <Bar fraction={z.seconds / zoneTotal} color={ZONE_COLOR[z.zone] ?? 'var(--other)'} />
                 </div>
               ))}
             </div>

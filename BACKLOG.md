@@ -379,11 +379,42 @@ curve. On this data critical speed comes out at 4:35/km against an
 independently-estimated threshold pace of 4:27/km — two methods within 8 s/km,
 which is a reassuring cross-check. VO₂max and race prediction remain.
 
-### ☐ 11. Zone distribution over time and polarisation index
+### ◔ 11. Zone distribution over time and polarisation index
 
 **Why.** Current zone distribution is a single all-time aggregate. The
 interesting question is whether the *shape* is drifting — this athlete is at
 65/26/5/3/1, heavily Z1-weighted, and whether that is deliberate is invisible.
+
+**Done — distribution over time.** A stacked column per month on `/trends`,
+plus the three-zone rollup and a named shape. Current state across all sports:
+**92% easy · 7% moderate · 1% hard over 422 h — pyramidal.**
+
+The five stored zones collapse to three at the two physiological thresholds
+(the 0.89 and 0.99 LTHR edges the analytics service already cuts at), which is
+what makes "polarised" and "pyramidal" mean something rather than being
+adjectives.
+
+Column height tracks total recorded time, and this was the whole design
+problem. Normalising every column to full height was the first attempt and it
+lied: June 2024 holds 1.7 hours, nearly all of it hard, and full-height it
+screamed a training shape one session cannot support — directly beside a
+30-hour month drawn exactly the same size. Height is now how much a column is
+entitled to claim.
+
+**Deliberately not done — the numeric polarisation index.** The published
+indices are a compressed function of the same three numbers, they disagree with
+each other, and a scalar invites reading a decimal place of significance into a
+coarse description of a training block. The shape is named instead, by
+ordering:
+
+| shape | ordering |
+|---|---|
+| pyramidal | easy > moderate > hard |
+| polarised | easy > hard > moderate |
+| threshold | not easy-dominated (under 60% easy) |
+
+These need no citation and cannot be quietly wrong. If a numeric index is
+wanted later it should arrive with a named source, not a formula from memory.
 
 **Effort** small.
 

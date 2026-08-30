@@ -6,6 +6,7 @@ import { api, type TrendPointRow } from '../lib/api';
 import { Chart, themeColor, useThemeVersion } from '../components/Chart';
 import { Empty } from '../components/PmcChart';
 import { Badge, ErrorNote, Loading, Panel, Stat } from '../components/ui';
+import { ZoneDistribution } from '../components/ZoneDistribution';
 import { compareEnds, rollingMedian, withGapBreaks, type TrendPoint } from '../lib/trends';
 import * as f from '../lib/format';
 
@@ -42,6 +43,12 @@ export function Trends({ athleteId }: { athleteId: string }) {
   const trends = useQuery({
     queryKey: ['trends', athleteId, sport],
     queryFn: () => api.trends(athleteId, { sport }),
+  });
+  // Across every sport: zones are heart-rate based and comparable, and the
+  // question "what shape is my training" is about all of it, not one discipline.
+  const zoneTrend = useQuery({
+    queryKey: ['zonesTrend', athleteId],
+    queryFn: () => api.zonesTrend(athleteId, { bucket: 'month' }),
   });
 
   const available = trends.data?.available ?? [];
@@ -165,6 +172,15 @@ export function Trends({ athleteId }: { athleteId: string }) {
           format={(v) => v.toPrecision(3)}
         />
       </Panel>
+
+      {zoneTrend.data && (
+        <Panel
+          title="Training distribution"
+          subtitle="Share of recorded time in each heart-rate zone, by month, across every sport"
+        >
+          <ZoneDistribution data={zoneTrend.data} />
+        </Panel>
+      )}
 
       <Panel
         title="Aerobic decoupling"

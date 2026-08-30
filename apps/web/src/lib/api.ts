@@ -279,6 +279,11 @@ export function uploadFile(
   });
 }
 
+export interface ZoneTrendResponse {
+  bucket: 'week' | 'month';
+  periods: { start: string; zones: Record<string, number> }[];
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -327,4 +332,8 @@ export const api = {
     get<StreamPayload>(`/activities/${id}/streams`, { points }),
   trends: (id: string, params: { sport?: string; from?: string; to?: string } = {}) =>
     get<TrendsResponse>(`/athletes/${id}/trends`, params),
+  zonesTrend: (
+    id: string,
+    params: { bucket?: 'week' | 'month'; sport?: string; from?: string; to?: string } = {},
+  ) => get<ZoneTrendResponse>(`/athletes/${id}/zones/trend`, params),
 };
