@@ -1,0 +1,431 @@
+# performance-lab
+
+Self-hosted training analytics for triathlon — an alternative to TrainingPeaks,
+aiming at the analytical depth of Runalyze.
+
+**Status:** ingestion, training-load engine, read API and dashboard working
+end to end against a 252-file corpus (2020–2025, 404,771 samples).
+
+## Architecture
+
+```
+  upload / connector
+         │
+         ▼
+  ┌─────────────┐   sha256, dedupe, blob store    ┌──────────┐
+  │   ingest    │────────────────────────────────►│  MinIO   │  raw/  + streams/
+  │  (Fastify)  │                                 └──────────┘
+  └──────┬──────┘
+         │ BullMQ job                             ┌──────────┐
+         ▼                                        │  Redis   │
+  ┌─────────────┐    POST /parse    ┌───────────┐ └──────────┘
+  │   worker    │──────────────────►│ analytics │
+  │  (BullMQ)   │◄──────────────────│ (FastAPI) │  fitparse → polars → Parquet
+  └──────┬──────┘   summary + key   └───────────┘
+         │
+         ▼
+  ┌─────────────┐
+  │  Postgres   │  athlete, athlete_threshold, raw_file, activity,
+  └─────────────┘  activity_load, athlete_daily
+         ▲
+         │                         ┌──────────┐
+  ┌──────┴──────┐   /streams       │   web    │  Vite + React + uPlot
+  │     api     │◄────────────────►│ (:3100)  │
+  │   (:8003)   │  proxied to      └──────────┘
+  └─────────────┘  analytics
+```
+
+Three queues, so a slow model can never block ingestion:
+
+```
+  parse ──► load ──► pmc (debounced 15s, collapses a 252-file import
+                          into one fitness-model rebuild)
+```
+
+Python owns FIT decoding and the numeric work — the mature decoders live there,
+and power-duration curves and critical-power modelling belong in numpy/polars,
+not in the orchestration layer. TypeScript owns orchestration, the queue and the
+domain schema. `lab/` imports the same Python modules the service runs, so
+exploratory findings ship without a rewrite.
+
+### Why raw bytes are kept
+
+Every file that enters the system is stored immutably, content-addressed by
+SHA-256, before anything is derived from it. Activities, streams and (later)
+training-load metrics are all rebuildable from those bytes. When a load formula
+or the parser improves, history is replayed locally — never re-fetched from a
+vendor whose rate limits and retention are outside our control.
+
+`activity.parser_version` records which parser produced each row, so a replay
+can target only stale ones.
+
+### Why thresholds are effective-dated
+
+`athlete_threshold` is keyed by `effective_from`. FTP and LTHR drift over years,
+so a TSS computed against today's FTP misrepresents a ride from 2021. Derived
+metrics join to the threshold row in effect at the activity's start time.
+
+### Why bad data is flagged, not rejected
+
+Real training data is dirty. This corpus contains a genuine 750 m swim
+hand-entered as 50 hours — 59% of all recorded swim time. Dropping it loses a
+real session; trusting it hands a 50-hour swim to the load model. So rows are
+kept verbatim and marked in `activity.quality_flags`, and load computation
+filters on those flags.
+
+Flags currently emitted:
+
+| flag | meaning |
+|---|---|
+| `implausible_duration` | over 24 h; almost always a manual-entry error |
+| `implausible_speed` | average speed beyond a generous per-sport ceiling |
+| `implausible_distance` | over 1,000 km |
+| `stream_distance_diverges` | session total and stream disagree by >2% |
+| `nonmonotonic_time` | samples went backwards; device restarted mid-activity |
+| `no_stream` | valid session carrying no record messages |
+
+`stream_distance_diverges` matters for analysis: it fires on treadmill runs,
+where Garmin rewrites the session total after user calibration but leaves the
+per-record stream at the watch's accelerometer estimate. Pace read straight off
+the stream is then wrong by up to 10% — it must be rescaled onto the session
+distance.
+
+## Training load
+
+Load is reported on the TSS scale, where **100 = one hour at threshold**.
+
+### Models
+
+| model | applies to | needs |
+|---|---|---|
+| `hr_tss` | any sport | Banister TRIMP over HR reserve, integrated per second |
+| `pace_tss` | running | grade-adjusted normalised pace vs threshold pace |
+| `power_tss` | cycling, rowing | normalised power vs FTP |
+| `swim_tss` | swimming | session pace vs critical swim speed (cubic) |
+| `duration_estimate` | fallback | the athlete's own median load/hour for that sport |
+
+Every applicable model is computed and stored for each activity; `load_method`
+records which one was used for the headline number.
+
+**Load is integrated per sample, not derived from average heart rate.** An
+interval session and a steady run can share a mean HR and differ in load by
+over 20%; averaging cannot tell them apart. Streams are resampled to 1 Hz first,
+because Garmin smart recording samples irregularly (~7 s here) and every window
+metric otherwise inherits that bias.
+
+### Consistency over per-session precision
+
+The default preference is heart-rate-first for every sport. Pace and power model
+a single session better, but *switching model between sessions puts steps in the
+fitness curve that no training explains*. On this corpus `pace_tss` scores 1.38×
+`hr_tss` for the same runs, so a winter of treadmill work — scored by HR, since
+treadmill distance is user-calibrated and the stream is not — would read as a
+fitness collapse that never happened.
+
+Run with `--preference precision` to take the best model per activity, the way
+TrainingPeaks does. Both are recomputes, not re-ingests. `model_agreement`
+stores the pace/HR ratio per activity so a mis-set threshold stays visible.
+
+### Estimated load, kept visible
+
+62% of this athlete's cycling volume (110 of 179 hours) has no heart-rate data.
+Dropping it would understate chronic load badly, so those sessions are scored at
+the athlete's own median load-per-hour for that sport — calibrated from the
+sessions that *were* measured — and marked `duration_estimate` so the inference
+never passes as measurement. Activities whose duration is known-wrong are marked
+`excluded_implausible` and contribute neither load nor training time.
+
+### Thresholds
+
+`npm run recompute` estimates thresholds from the athlete's own mean-maximal
+efforts when none exist. Estimates carry provenance and warnings:
+
+- **max HR** — best 5 s mean-max, not the highest single sample (strap artefacts)
+- **LTHR** — best 60 min mean-max HR; flagged if outside 80–92% of max HR
+- **FTP** — best 20 min power × 0.95, suppressed below 3 power files
+- **threshold pace** — best 30 min grade-adjusted running speed
+- **CSS** — 10th percentile of session paces ≥400 m (includes rest, so conservative)
+- **resting HR** — cannot be derived from activity files; defaults to 50 and says so
+
+Thresholds are effective-dated and resolved **per field**. Correcting a value
+appends a new dated entry rather than editing history, so a 2021 ride keeps
+being scored against 2021 fitness — and because resolution is per field,
+recording an FTP test does not blank the CSS measured three years earlier.
+Taking the newest row wholesale did exactly that during development, silently
+dropping pace-derived scoring from 193 activities.
+
+Edit them at `/thresholds`, or via `POST /athletes/:id/thresholds`. Either way
+the stored load is then scaled against superseded numbers until you recompute —
+the UI says so rather than starting minutes of work implicitly.
+
+### Fitness model
+
+CTL (42-day) and ATL (7-day) exponentially weighted averages of daily load; form
+is `ctl - atl` as of the *previous* day. Also computed: ramp rate, Foster
+monotony and strain, and acute:chronic workload ratio.
+
+Decay uses `1 - exp(-1/N)`, not the `2/(N+1)` a span-based EWMA gives. For a
+42-day constant those are 0.0236 and 0.0465 — the span form decays about twice
+as fast and produces a visibly different curve for identical training.
+
+## Layout
+
+| path | what |
+|---|---|
+| `packages/db` | Drizzle schema + migrations; owns the Postgres contract |
+| `services/ingest-worker` | upload API, BullMQ parse worker, backfill CLI |
+| `services/analytics` | FastAPI: FIT decode, load models, PMC, Parquet |
+| `services/api` | read API, threshold writes, recompute control |
+| `packages/jobs` | queue definitions shared by the API and the worker |
+| `lab` | DuckDB exploration over the same Parquet, no export step |
+| `apps/web` | dashboard: PMC, activity list, per-activity streams |
+| `inputs` | local FIT corpus, gitignored |
+
+## Running it
+
+Ports are deliberately offset (5433 / 6380 / 9100) to coexist with the
+`open-finance` stack on this machine.
+
+### Everything in Docker
+
+```bash
+cp .env.example .env   # set POSTGRES_PASSWORD, S3_SECRET_KEY, BETTER_AUTH_SECRET
+docker compose --profile apps up -d --build
+npm run db:migrate     # first run only
+```
+
+Dashboard at **https://localhost**. Caddy terminates TLS, serves the built app
+and proxies `/api` to the API container, so the browser stays on one origin: no
+CORS, no API URL baked into the bundle, and the session cookie is first-party.
+
+Create an account on first visit — the first one claims any athlete imported
+before authentication existed.
+
+### Certificates
+
+`SITE_ADDRESS` decides everything, and Caddy needs no help choosing:
+
+| SITE_ADDRESS | certificate | needs |
+|---|---|---|
+| `https://localhost` | Caddy internal CA | nothing |
+| `https://192.168.40.100` | Caddy internal CA | nothing |
+| `https://lab.yourdomain.com` | Let's Encrypt via DNS-01 | `CLOUDFLARE_API_TOKEN` |
+
+The internal CA is real TLS — Secure cookies work, the connection is genuinely
+encrypted — but browsers will warn until its root is trusted. Extract and trust
+it with:
+
+```bash
+docker compose exec web cat /data/caddy/pki/authorities/local/root.crt > caddy-root-ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root-ca.crt
+```
+
+A home server behind NAT cannot answer an HTTP-01 challenge, which is why the
+public path uses DNS-01: Caddy proves control of the domain by writing a TXT
+record instead of receiving an inbound connection. Create a token at
+[Cloudflare](https://dash.cloudflare.com/profile/api-tokens) with the **Edit
+zone DNS** template, scoped to the single zone.
+
+While getting a deployment right, set `ACME_CA_DIRECTIVE` to the Let's Encrypt
+staging directory — the production endpoint rate-limits failed attempts hard.
+
+Infra alone (`postgres`, `redis`, `minio`) comes up without the profile:
+`npm run infra:up`. That is the mode to use while developing, with the services
+run locally against it.
+
+> **Native binaries and the lockfile.** `apps/web` declares
+> `optionalDependencies` for rollup, lightningcss, Tailwind's oxide and esbuild
+> across linux-x64, linux-arm64 and darwin-arm64. npm records only the variant
+> matching the machine that ran `npm install` ([npm/cli#4828]), so a lockfile
+> generated on a Mac fails the Linux image build on a missing native module.
+> Declaring the targets puts them all in the lockfile; npm skips the ones that
+> do not apply. Add a target here before building for a new architecture.
+
+[npm/cli#4828]: https://github.com/npm/cli/issues/4828
+
+### Local development
+
+```bash
+cp .env.example .env      # then set POSTGRES_PASSWORD and S3_SECRET_KEY
+npm install
+npm run infra:up
+npm run db:migrate
+```
+
+Then, in four terminals:
+
+```bash
+cd services/analytics && python3 -m venv .venv && ./.venv/bin/pip install -e . && \
+  set -a && . ../../.env && set +a && ./.venv/bin/uvicorn app.main:app --port 8001
+```
+
+```bash
+set -a && . ./.env && set +a && npm run worker
+```
+
+```bash
+set -a && . ./.env && set +a && npm run api
+```
+
+```bash
+npm run web        # http://localhost:3100, proxying /api to :8003
+```
+
+Backfill a directory of FIT files. Re-running is free: ingestion is keyed on
+content hash, so files already present are skipped without re-parsing.
+
+```bash
+npm run backfill -- ./inputs --athlete "Erik"
+```
+
+Then estimate thresholds and build the fitness model. New uploads are scored
+automatically; this is for the initial bootstrap and for replaying after a model
+change.
+
+```bash
+npm run recompute -- --athlete "Erik"
+```
+
+Watch progress:
+
+```bash
+curl -s localhost:8002/ingest/status | jq
+```
+
+## Tests
+
+```bash
+npm run verify
+```
+
+Runs everything CI runs, in the same order: typechecks every workspace, the
+Node test suites, the Python suite, and a production build of the dashboard.
+A green run here means a green pipeline — that is the whole point of it being
+one command rather than a list in a README.
+
+Individual suites, when you want a faster loop:
+
+```bash
+cd services/analytics && ./.venv/bin/python -m pytest -q
+```
+
+The Python suite runs against the real corpus in `inputs/` and skips when it is
+absent. It asserts what an analytics pipeline must never do quietly: drop an
+activity, mangle units, reorder samples, or silently accept impossible values.
+
+```bash
+npm -w @lab/ingest-worker test
+```
+
+## Deployment
+
+Push to `main` → CI typechecks, tests, and checks the migrations apply to an
+empty database → four images are published to GHCR → the server's timer pulls
+them within five minutes, migrates, restarts, and rolls back on its own if the
+API fails its healthcheck.
+
+The server pulls rather than being pushed to: it sits behind NAT, so this needs
+no inbound port, no tunnel, and no deploy credentials on a runner.
+
+[`deploy/README.md`](deploy/README.md) is the full runbook — first-time setup,
+what is exposed, backups, and what to do when a deploy fails.
+
+## Authentication
+
+Better Auth as a library, sessions in the same Postgres as the training data.
+That is the whole argument for it over a hosted identity service: a coach's
+access to an athlete is a foreign key, not a reconciliation against an external
+system, and nothing needs to reach the internet.
+
+**First run.** Open the dashboard and create an account. The first one created
+claims any athlete imported before authentication existed, so setting up does
+not need psql. Afterwards, set `AUTH_ALLOW_SIGNUP=false` to close registration —
+though an account with no athlete and no grants can see nothing either way.
+
+**Sharing.** Access is athlete-initiated: you generate a scoped invite code and
+hand it over. There is no endpoint where a coach names an athlete and requests
+access, which is the right default for health data and means the API cannot be
+used to probe whether a given athlete exists — an athlete you cannot see returns
+404, never 403.
+
+Scopes are enforced, not decorative:
+
+| scope | grants |
+|---|---|
+| `training` | activities, load, fitness model, curves |
+| `wellness` | resting HR, HRV, sleep, weight (once recorded) |
+| `location` | GPS traces — stripped from stream payloads without it |
+
+Coaches read. Thresholds, recompute and invite management are owner-only.
+
+Every athlete-scoped route resolves access through `services/api/src/access.ts`
+and nowhere else, and a structural test fails if a route is added without a
+guard. That test exists because the first hand-run audit found
+`/athletes/:id/zones` unprotected.
+
+## Dashboard
+
+`docker compose --profile apps up -d` or `npm run web` → http://localhost:3100
+
+- **Dashboard** — fitness/fatigue/form chart with daily load behind it, sport
+  breakdown, heart-rate zone distribution, recent activities, current thresholds
+- **Activities** — filterable, paginated list showing how each session was
+  scored and any quality flags it carries
+- **Activity** — route map coloured by speed, heart rate or elevation, synced
+  heart rate / speed / elevation / cadence traces (hovering a trace moves the
+  map marker), time in zones, and every load model that could be computed with
+  the chosen one marked
+- **Calendar** — week-per-row grid with session chips, weekly hours and load,
+  week-on-week change, and the model's risk flags on the weeks that earned them
+- **Curve** — mean-maximal duration curve per sport and metric, a recent window
+  overlaid on all-time, and critical speed / D′ fitted from the aggregate
+- **Thresholds** — what is currently in effect and where each value came from,
+  an append-only editor, and a recompute control with progress and staleness
+
+Two decisions worth knowing about:
+
+**Maps are Leaflet, not MapLibre.** Raster tiles and a polyline is the whole
+job — ~42 kB with no WebGL, worker or animation-frame dependency, against
+MapLibre's ~250 kB. The route draws from stored coordinates and renders with or
+without tiles, so an offline server still shows the track. Tiles default to
+public OpenStreetMap, which reveals the viewed area to that provider; set
+`VITE_MAP_TILES` to your own tile server to keep it local.
+
+**Charts are uPlot, not an SVG library.** The fitness series is ~2,000 daily
+points and a single ride stream is thousands more; SVG charts allocate a DOM
+node per point and stop being interactive well before that.
+
+**Streams are downsampled server-side to ~1,500 points**, using bucketed
+min/max rather than striding. Striding drops whichever samples fall between
+strides, so a 30-second VO₂max interval can disappear from a heart-rate trace
+entirely. Bucketing keeps each bucket's extremes, so peaks survive: on a
+4,504-sample activity the reduction preserves min/max exactly and shifts the
+mean by under 0.1 bpm, for a ~20 KB payload.
+
+**Date ranges anchor to the last activity, not to today.** Anchoring to today
+means an athlete who has not trained for months opens the dashboard to a chart
+that is almost entirely flat decay.
+
+## Not yet built
+
+- Power-duration curve and critical power (the mean-max primitive exists in
+  `app/streams.py`; the curve endpoint does not)
+- VO2max estimation and race prediction
+- Auth (Better Auth) and the coach↔athlete grant model — the API is currently
+  unauthenticated and assumes a single athlete
+- Upload from the browser; the upload endpoint still lives on the ingest worker
+  rather than the API
+- Strava connector (webhook-first) behind a Cloudflare Tunnel
+
+## Known limitations
+
+- **No power data.** `power_tss` is implemented and unit-tested but has never
+  run against a real power meter file. Treat its first real numbers with
+  suspicion.
+- **Swim load uses session pace**, which includes rest between sets. HR is
+  preferred for swimming as a result; lap-level parsing would let pace win.
+- **The `duration_estimate` fallback assumes** no-HR sessions resemble measured
+  ones for that sport. If the strap comes off mainly on hard group rides, those
+  are systematically underestimated.
+- **LTHR is estimated at 93% of max HR** for this athlete, above the usual band.
+  A field test would settle it; every HR-derived load number scales with it.

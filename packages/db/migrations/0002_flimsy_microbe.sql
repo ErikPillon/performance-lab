@@ -1,0 +1,1 @@
+ALTER TABLE "activity_load" ADD COLUMN "model_agreement" double precision;

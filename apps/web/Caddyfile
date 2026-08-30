@@ -1,0 +1,57 @@
+{
+	# ACME account contact. Unused while the internal CA is in play.
+	email {$ACME_EMAIL:admin@localhost}
+	# Staging avoids Let's Encrypt rate limits while getting a deployment right.
+	{$ACME_CA_DIRECTIVE}
+}
+
+# SITE_ADDRESS decides how certificates are obtained, and Caddy needs no help
+# choosing: an IP address or a *.localhost name gets a certificate from Caddy's
+# own internal CA, and a real hostname triggers ACME. That is why this works on
+# a LAN with no account, no token and no internet, and upgrades to a publicly
+# trusted certificate by changing one variable.
+{$SITE_ADDRESS:https://localhost} {
+	encode zstd gzip
+
+	# The API shares the site's origin, so the session cookie is first-party
+	# and no cross-site exemption is needed anywhere.
+	# Written at startup by the entrypoint: a DNS-01 challenge block when a
+	# Cloudflare token is present, and empty otherwise so Caddy falls back to
+	# its internal CA. A Caddyfile has no conditionals, and emitting an
+	# unconditional `dns` directive would make Caddy attempt DNS-01 with an
+	# empty token instead of issuing its own certificate.
+	import /etc/caddy/tls.conf
+
+	handle_path /api/* {
+		reverse_proxy api:8003 {
+			header_up X-Forwarded-Proto {scheme}
+			# Stream responses can be a few hundred KB and take a moment.
+			transport http {
+				response_header_timeout 120s
+			}
+		}
+	}
+
+	handle {
+		root * /srv/www
+
+		# Hashed asset filenames are immutable.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+
+		# Client-side routing: /activities/:id is a React route, not a file.
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		# Only meaningful over a trusted certificate, and harmless before then.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		# Tiles and fonts are the only third parties; everything else is same-origin.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'"
+		-Server
+	}
+}

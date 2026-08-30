@@ -1,0 +1,53 @@
+# Production overlay for the server. Use with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     --profile apps up -d
+#
+# Two things change here, and nothing else.
+#
+# 1. Services run a published image instead of building from source. The server
+#    never compiles: it pulls what CI already built and tested. IMAGE_TAG pins
+#    the exact commit, so a deploy is reproducible and a rollback is one
+#    variable away.
+#
+# 2. Every port except the edge proxy's stops being published. In the base file
+#    Postgres, Redis and MinIO bind the host so you can reach them from a local
+#    shell; on a LAN box that same line offers the database to everyone on the
+#    network. They stay reachable service-to-service over the compose network,
+#    which is all they need.
+#
+# `!override` replaces a list rather than appending to it — Compose concatenates
+# `ports` by default, so a plain empty list would leave the originals in place.
+# Needs Compose v2.24 or newer (`docker compose version`).
+
+services:
+  postgres:
+    ports: !override []
+
+  redis:
+    ports: !override []
+
+  minio:
+    # 9101 is the MinIO web console. Reach it through an SSH tunnel when needed:
+    #   ssh -L 9101:localhost:9101 <server>
+    ports: !override []
+
+  analytics:
+    image: ghcr.io/erikpillon/performance-lab/analytics:${IMAGE_TAG:?set IMAGE_TAG, e.g. sha-<commit> or latest}
+    build: !reset null
+    ports: !override []
+
+  api:
+    image: ghcr.io/erikpillon/performance-lab/api:${IMAGE_TAG}
+    build: !reset null
+    ports: !override []
+
+  ingest-worker:
+    image: ghcr.io/erikpillon/performance-lab/worker:${IMAGE_TAG}
+    build: !reset null
+    ports: !override []
+
+  web:
+    image: ghcr.io/erikpillon/performance-lab/web:${IMAGE_TAG}
+    build: !reset null
+    # The edge keeps its ports: this is the only way in.

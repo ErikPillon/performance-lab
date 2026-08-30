@@ -62,7 +62,7 @@ coverage.xml
 # ==========================================
 # Data (Inputs / Outputs)
 # ==========================================
-/inputs/
+inputs/
 
 # ==========================================
 # Environment Variables (Secrets)
@@ -75,6 +75,8 @@ coverage.xml
 .env.development
 .env.test
 .env.production
+# ...but the template carries no secrets and must be committed.
+!.env.example
 
 
 # ==========================================
@@ -98,3 +100,15 @@ Desktop.ini
 # JetBrains (PyCharm, WebStorm, etc.)
 .idea/
 *.iml
+# ==========================================
+# Monorepo
+# ==========================================
+.turbo/
+*.tsbuildinfo
+services/analytics/.venv/
+lab/.venv/
+lab/*.duckdb
+data/
+
+# Caddy internal CA root, extracted for local trust. Machine-specific.
+caddy-root-ca.crt

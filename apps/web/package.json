@@ -1,0 +1,46 @@
+{
+  "name": "@lab/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3100 --host=0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port=3100",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.11",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1",
+    "uplot": "^1.6.31",
+    "leaflet": "^1.9.4",
+    "better-auth": "^1.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.7.2",
+    "vite": "^6.2.3",
+    "@types/leaflet": "^1.9.15"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "4.60.2",
+    "@rollup/rollup-linux-x64-gnu": "4.60.2",
+    "@rollup/rollup-linux-arm64-gnu": "4.60.2",
+    "lightningcss-darwin-arm64": "1.32.0",
+    "lightningcss-linux-x64-gnu": "1.32.0",
+    "lightningcss-linux-arm64-gnu": "1.32.0",
+    "@tailwindcss/oxide-darwin-arm64": "4.2.4",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.2.4",
+    "@tailwindcss/oxide-linux-arm64-gnu": "4.2.4",
+    "@esbuild/darwin-arm64": "0.28.2",
+    "@esbuild/linux-x64": "0.28.2",
+    "@esbuild/linux-arm64": "0.28.2"
+  }
+}

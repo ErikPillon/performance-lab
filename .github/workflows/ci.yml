@@ -1,0 +1,155 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Pushing a second commit while the first is still building wastes a runner on
+# a result nobody will read.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Node and Python are pinned to whatever the Dockerfiles run, so a green CI
+  # says something about the artefact that actually ships.
+  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  node:
+    name: typecheck & test (node)
+    runs-on: ubuntu-latest
+    env:
+      # Importing the API's route modules constructs the auth handler and the
+      # postgres client at module load, so these must be present. postgres.js
+      # connects lazily and none of these tests query, so a syntactically valid
+      # URL pointing nowhere is enough.
+      DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
+      BETTER_AUTH_SECRET: ci-secret-not-used-for-anything-real
+      AUTH_BASE_URL: http://localhost:8003
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: typecheck
+        run: |
+          for ws in packages/db packages/jobs services/api services/ingest-worker apps/web; do
+            echo "::group::$ws"
+            (cd "$ws" && npx tsc --noEmit)
+            echo "::endgroup::"
+          done
+      - name: test
+        run: |
+          for ws in packages/db services/api services/ingest-worker apps/web; do
+            echo "::group::$ws"
+            npm test --workspace "$ws"
+            echo "::endgroup::"
+          done
+      - name: build dashboard
+        run: npm run build --workspace @lab/web
+
+  python:
+    name: test (analytics)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e '.[dev]'
+        working-directory: services/analytics
+      # The FIT corpus is personal training data and is not committed, so the
+      # tests that need it skip here by design (see tests/conftest.py). The
+      # unit suite covers the maths without it.
+      - run: pytest -q
+        working-directory: services/analytics
+
+  migrations:
+    name: migrations apply cleanly
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # A migration that only ever ran against a database it had already
+      # half-built is a migration that breaks on the first real deploy. This
+      # applies the whole chain to an empty database.
+      - run: npm run db:migrate
+      - name: applying twice must be a no-op
+        run: npm run db:migrate
+
+  images:
+    # Builds on every PR, pushes only from main. Building here is the point:
+    # otherwise a merge to main is the first time these Dockerfiles ever run,
+    # and a broken one turns the default branch red instead of the PR. The
+    # layer cache is shared between the two, so the push on main mostly reuses
+    # what the PR already built.
+    name: build images
+    needs: [node, python, migrations]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: api,       context: ., dockerfile: services/api/Dockerfile }
+          - { name: worker,    context: ., dockerfile: services/ingest-worker/Dockerfile }
+          - { name: analytics, context: services/analytics, dockerfile: services/analytics/Dockerfile }
+          - { name: web,       context: ., dockerfile: apps/web/Dockerfile }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # GHCR rejects uppercase in a repository name and the owner here is
+      # `ErikPillon`, so `github.repository` cannot be used directly.
+      - name: lowercase the image namespace
+        id: ns
+        run: echo "repo=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ steps.ns.outputs.repo }}/${{ matrix.name }}
+          # `sha` is what the server pins to; `latest` is for humans reading
+          # the package listing.
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
