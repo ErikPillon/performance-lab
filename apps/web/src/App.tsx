@@ -5,6 +5,7 @@ import { api } from './lib/api';
 import { Activities } from './pages/Activities';
 import { ActivityDetail } from './pages/ActivityDetail';
 import { Dashboard } from './pages/Dashboard';
+import { Thresholds } from './pages/Thresholds';
 import { ErrorNote, Loading } from './components/ui';
 
 type Theme = 'light' | 'dark' | 'system';
@@ -64,6 +65,7 @@ export default function App() {
       {[
         { to: '/', label: 'Dashboard' },
         { to: '/activities', label: 'Activities' },
+        { to: '/thresholds', label: 'Thresholds' },
       ].map((item) => {
         const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
         return (
@@ -93,6 +95,7 @@ export default function App() {
         <Route path="/" element={<Dashboard athleteId={athlete.id} />} />
         <Route path="/activities" element={<Activities athleteId={athlete.id} />} />
         <Route path="/activities/:id" element={<ActivityDetail />} />
+        <Route path="/thresholds" element={<Thresholds athleteId={athlete.id} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

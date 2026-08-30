@@ -5,17 +5,20 @@ import { activity, db, rawFile } from '@lab/db';
 import { UnparseableError, parseBlob } from './analytics.js';
 import { computeAndStore } from './load.js';
 import { rebuildPmc } from './pmc.js';
+import { recomputeAthlete } from './recomputeAll.js';
 import {
   LOAD_QUEUE,
   PARSE_QUEUE,
   PMC_QUEUE,
+  RECOMPUTE_QUEUE,
   connection,
   loadQueue,
   requestPmcRebuild,
   type LoadJob,
   type ParseJob,
   type PmcJob,
-} from './queue.js';
+  type RecomputeJob,
+} from '@lab/jobs';
 
 /**
  * Decode one raw file into an activity row plus a Parquet stream object.
@@ -145,6 +148,27 @@ async function handlePmc(job: { data: PmcJob }): Promise<string> {
   return `${days} days`;
 }
 
+/**
+ * Full recompute, triggered from the dashboard after a threshold changes.
+ *
+ * Progress is written back to the job so the UI can show a phase and a count
+ * rather than an indeterminate spinner — this takes seconds on a few hundred
+ * activities but minutes on a few thousand.
+ */
+async function handleRecompute(job: {
+  data: RecomputeJob;
+  updateProgress: (p: object) => Promise<void>;
+}): Promise<string> {
+  const result = await recomputeAthlete(job.data.athleteId, {
+    estimateThresholds: job.data.estimateThresholds,
+    preference: job.data.preference,
+    onProgress: (update) => {
+      void job.updateProgress(update);
+    },
+  });
+  return `${result.activities} activities, ${result.days} days, ${result.failed} failed`;
+}
+
 export function startWorker() {
   // Concurrency 4: decoding is CPU-bound in the analytics service, so this is
   // sized to keep it busy without queueing requests inside it.
@@ -153,13 +177,35 @@ export function startWorker() {
   // Concurrency 1: the rebuild deletes and rewrites the whole series, so two at
   // once for the same athlete would race.
   const pmc = new Worker<PmcJob>(PMC_QUEUE, handlePmc, { connection, concurrency: 1 });
+  // Concurrency 1 for the same reason as pmc, and because a recompute walks
+  // every activity: two at once would double the load on the analytics service.
+  const recompute = new Worker<RecomputeJob>(RECOMPUTE_QUEUE, handleRecompute, {
+    connection,
+    concurrency: 1,
+    // A few thousand activities can take minutes; the default lock would expire
+    // mid-run and the job would be picked up a second time.
+    lockDuration: 15 * 60_000,
+  });
 
-  for (const [name, worker] of [['parse', parse], ['load', load], ['pmc', pmc]] as const) {
+  for (const [name, worker] of [
+    ['parse', parse],
+    ['load', load],
+    ['pmc', pmc],
+    ['recompute', recompute],
+  ] as const) {
     worker.on('failed', (job, err) =>
       console.error(`[${name}] job ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message),
     );
     worker.on('error', (err) => console.error(`[${name}] worker error:`, err.message));
   }
 
-  return { parse, load, pmc, async close() { await Promise.all([parse.close(), load.close(), pmc.close()]); } };
+  return {
+    parse,
+    load,
+    pmc,
+    recompute,
+    async close() {
+      await Promise.all([parse.close(), load.close(), pmc.close(), recompute.close()]);
+    },
+  };
 }

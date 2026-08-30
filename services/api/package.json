@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --env-file-if-exists=../../.env --test --import tsx \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
@@ -14,7 +15,8 @@
     "@lab/db": "*",
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.0",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "@lab/jobs": "*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

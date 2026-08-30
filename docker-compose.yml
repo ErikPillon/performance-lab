@@ -85,12 +85,14 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-lab}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-performance_lab}
+      REDIS_URL: redis://redis:6379
       ANALYTICS_URL: http://analytics:8001
       API_PORT: "8003"
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
     ports: ["8003:8003"]
     depends_on:
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
       analytics: { condition: service_started }
 
   ingest-worker:

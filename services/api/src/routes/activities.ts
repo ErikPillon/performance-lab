@@ -1,6 +1,6 @@
 import { desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { activity, activityLoad, athleteThreshold, db } from '@lab/db';
+import { activity, activityLoad, db, resolveThresholdsAt } from '@lab/db';
 import { env } from '../env.js';
 
 export async function activityRoutes(app: FastifyInstance) {
@@ -16,12 +16,7 @@ export async function activityRoutes(app: FastifyInstance) {
 
     // The thresholds this activity was actually scored against, not today's —
     // otherwise the detail view would explain a 2021 ride with 2026 numbers.
-    const [thresholds] = await db
-      .select()
-      .from(athleteThreshold)
-      .where(eq(athleteThreshold.athleteId, row.activity.athleteId))
-      .orderBy(desc(athleteThreshold.effectiveFrom))
-      .limit(1);
+    const thresholds = await resolveThresholdsAt(row.activity.athleteId, row.activity.startTime);
 
     // `hasStreams` rather than the raw key: the client needs to know whether a
     // chart is worth requesting, not where the object lives.

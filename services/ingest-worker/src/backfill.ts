@@ -11,7 +11,7 @@ import { basename, extname, join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { athlete, athleteThreshold, db, sql as pg } from '@lab/db';
 import { ingestBytes } from './ingest.js';
-import { connection, parseQueue } from './queue.js';
+import { connection, parseQueue } from '@lab/jobs';
 
 const SUPPORTED = new Set(['.fit']);
 

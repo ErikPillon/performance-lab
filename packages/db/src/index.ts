@@ -9,4 +9,5 @@ if (!url) throw new Error('DATABASE_URL is not set');
 export const sql = postgres(url, { max: 5, onnotice: () => {} });
 export const db = drizzle(sql, { schema });
 export * from './schema.js';
+export * from './queries.js';
 export { schema };

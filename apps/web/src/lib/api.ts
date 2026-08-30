@@ -60,6 +60,8 @@ export interface ActivityRow {
 
 export interface Thresholds {
   effectiveFrom: string;
+  /** Which dated entry each value was resolved from, keyed by snake_case field. */
+  sources?: Record<string, string>;
   maxHr: number | null;
   restHr: number | null;
   lthr: number | null;
@@ -103,6 +105,40 @@ export interface ActivityDetail {
   thresholds: Thresholds | null;
 }
 
+export interface ThresholdRow extends Thresholds {
+  id: string;
+  athleteId: string;
+  weightKg: number | null;
+  createdAt: string;
+}
+
+export interface RecomputeStatus {
+  job: {
+    id: string;
+    state: string;
+    progress: { phase?: string; done?: number; total?: number; message?: string } | number;
+    failedReason: string | null;
+    finishedOn: number | null;
+  } | null;
+  currentVersion: string | null;
+  versions: { version: string; n: number }[];
+  staleRows: number;
+}
+
+async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = (payload as { errors?: string[]; error?: string });
+    throw new Error(detail.errors?.join('; ') ?? detail.error ?? `${res.status} ${res.statusText}`);
+  }
+  return payload as T;
+}
+
 export const api = {
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
   summary: (id: string) => get<Summary>(`/athletes/${id}/summary`),
@@ -116,6 +152,18 @@ export const api = {
   zones: (id: string, from?: string, to?: string) =>
     get<{ zones: { zone: string; seconds: number }[] }>(`/athletes/${id}/zones`, { from, to }),
   activity: (id: string) => get<ActivityDetail>(`/activities/${id}`),
+  thresholds: (id: string) => get<{ thresholds: ThresholdRow[] }>(`/athletes/${id}/thresholds`),
+  saveThresholds: (id: string, body: Record<string, unknown>) =>
+    send<{ threshold: ThresholdRow; advisories: string[]; recomputeRequired: boolean }>(
+      `/athletes/${id}/thresholds`,
+      'POST',
+      body,
+    ),
+  deleteThreshold: (id: string, effectiveFrom: string) =>
+    send<{ deleted: number }>(`/athletes/${id}/thresholds/${effectiveFrom}`, 'DELETE'),
+  recompute: (id: string, body: { estimateThresholds?: boolean } = {}) =>
+    send<{ jobId: string }>(`/athletes/${id}/recompute`, 'POST', body),
+  recomputeStatus: (id: string) => get<RecomputeStatus>(`/athletes/${id}/recompute`),
   streams: (id: string, points = 1500) =>
     get<StreamPayload>(`/activities/${id}/streams`, { points }),
 };

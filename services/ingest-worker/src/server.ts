@@ -4,7 +4,7 @@ import { count, eq, sql } from 'drizzle-orm';
 import { activity, activityLoad, athlete, athleteDaily, db, rawFile } from '@lab/db';
 import { env } from './env.js';
 import { ingestBytes } from './ingest.js';
-import { loadQueue, parseQueue, pmcQueue } from './queue.js';
+import { loadQueue, parseQueue, pmcQueue } from '@lab/jobs';
 
 export async function buildServer() {
   const app = Fastify({ logger: { level: 'info' } });

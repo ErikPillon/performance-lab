@@ -19,7 +19,8 @@
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.0",
     "ioredis": "^5.4.2",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "@lab/jobs": "*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

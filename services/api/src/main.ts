@@ -9,9 +9,11 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { sql as pg } from '@lab/db';
+import { connection } from '@lab/jobs';
 import { env } from './env.js';
 import { activityRoutes } from './routes/activities.js';
 import { athleteRoutes } from './routes/athletes.js';
+import { thresholdRoutes } from './routes/thresholds.js';
 
 const app = Fastify({ logger: { level: 'info' } });
 
@@ -20,6 +22,7 @@ await app.register(cors, { origin: env.corsOrigin });
 app.get('/health', async () => ({ status: 'ok' }));
 await app.register(athleteRoutes);
 await app.register(activityRoutes);
+await app.register(thresholdRoutes);
 
 await app.listen({ port: env.port, host: '0.0.0.0' });
 app.log.info(`api listening on :${env.port}`);
@@ -27,6 +30,7 @@ app.log.info(`api listening on :${env.port}`);
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     await app.close();
+    await connection.quit();
     await pg.end();
     process.exit(0);
   });

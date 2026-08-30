@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { db, rawFile } from '@lab/db';
-import { parseQueue, type ParseJob } from './queue.js';
+import { parseQueue, type ParseJob } from '@lab/jobs';
 import { putRaw, rawKey, sha256 } from './storage.js';
 
 export interface IngestResult {

@@ -147,8 +147,16 @@ efforts when none exist. Estimates carry provenance and warnings:
 - **CSS** — 10th percentile of session paces ≥400 m (includes rest, so conservative)
 - **resting HR** — cannot be derived from activity files; defaults to 50 and says so
 
-Thresholds are effective-dated. Correct them by inserting a new
-`athlete_threshold` row rather than editing the old one, and recompute.
+Thresholds are effective-dated and resolved **per field**. Correcting a value
+appends a new dated entry rather than editing history, so a 2021 ride keeps
+being scored against 2021 fitness — and because resolution is per field,
+recording an FTP test does not blank the CSS measured three years earlier.
+Taking the newest row wholesale did exactly that during development, silently
+dropping pace-derived scoring from 193 activities.
+
+Edit them at `/thresholds`, or via `POST /athletes/:id/thresholds`. Either way
+the stored load is then scaled against superseded numbers until you recompute —
+the UI says so rather than starting minutes of work implicitly.
 
 ### Fitness model
 
@@ -167,7 +175,8 @@ as fast and produces a visibly different curve for identical training.
 | `packages/db` | Drizzle schema + migrations; owns the Postgres contract |
 | `services/ingest-worker` | upload API, BullMQ parse worker, backfill CLI |
 | `services/analytics` | FastAPI: FIT decode, load models, PMC, Parquet |
-| `services/api` | read API for the dashboard; proxies streams to analytics |
+| `services/api` | read API, threshold writes, recompute control |
+| `packages/jobs` | queue definitions shared by the API and the worker |
 | `lab` | DuckDB exploration over the same Parquet, no export step |
 | `apps/web` | dashboard: PMC, activity list, per-activity streams |
 | `inputs` | local FIT corpus, gitignored |
@@ -277,6 +286,8 @@ npm -w @lab/ingest-worker test
   scored and any quality flags it carries
 - **Activity** — synced heart rate / speed / elevation / cadence traces, time in
   zones, and every load model that could be computed with the chosen one marked
+- **Thresholds** — what is currently in effect and where each value came from,
+  an append-only editor, and a recompute control with progress and staleness
 
 Two decisions worth knowing about:
 

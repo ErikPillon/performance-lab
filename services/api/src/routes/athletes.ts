@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { activity, activityLoad, athlete, athleteDaily, athleteThreshold, db } from '@lab/db';
+import { activity, activityLoad, athlete, athleteDaily, athleteThreshold, db, resolveThresholdsAt } from '@lab/db';
 
 /** ISO date string, or undefined if absent/unparseable. */
 function isoDate(value: unknown): string | undefined {
@@ -66,12 +66,31 @@ export async function athleteRoutes(app: FastifyInstance) {
       .from(activity)
       .where(eq(activity.athleteId, id));
 
-    const [thresholds] = await db
-      .select()
+    // Coalesced per field rather than the newest row alone, so a CSS measured
+    // in 2020 still shows if the newest entry only recorded an FTP test.
+    const effective = await resolveThresholdsAt(id, new Date());
+    const [newest] = await db
+      .select({ effectiveFrom: athleteThreshold.effectiveFrom, note: athleteThreshold.note })
       .from(athleteThreshold)
       .where(eq(athleteThreshold.athleteId, id))
       .orderBy(desc(athleteThreshold.effectiveFrom))
       .limit(1);
+
+    const thresholds = newest
+      ? {
+          effectiveFrom: newest.effectiveFrom,
+          note: newest.note,
+          maxHr: effective.max_hr,
+          restHr: effective.rest_hr,
+          lthr: effective.lthr,
+          ftpWatts: effective.ftp_watts,
+          cssSecPer100m: effective.css_sec_per_100m,
+          thresholdPaceSecPerKm: effective.threshold_pace_sec_per_km,
+          weightKg: effective.weight_kg,
+          /** Which dated entry each value came from. */
+          sources: effective.sources,
+        }
+      : null;
 
     const bySport = await db
       .select({
@@ -92,7 +111,7 @@ export async function athleteRoutes(app: FastifyInstance) {
       .where(eq(activity.athleteId, id))
       .groupBy(activity.sport);
 
-    return { athlete: who, current: current ?? null, totals, thresholds: thresholds ?? null, bySport };
+    return { athlete: who, current: current ?? null, totals, thresholds, bySport };
   });
 
   /** The fitness/fatigue/form series. */

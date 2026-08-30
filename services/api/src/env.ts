@@ -7,6 +7,7 @@ function required(name: string): string {
 export const env = {
   databaseUrl: required('DATABASE_URL'),
   analyticsUrl: process.env.ANALYTICS_URL ?? 'http://localhost:8001',
+  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
   ingestUrl: process.env.INGEST_URL ?? 'http://localhost:8002',
   port: Number(process.env.API_PORT ?? 8003),
   /** Dev default is permissive; tighten to the real origin once auth lands. */
