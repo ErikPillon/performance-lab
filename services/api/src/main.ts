@@ -20,6 +20,7 @@ import { trendRoutes } from './routes/trends.js';
 import { grantRoutes } from './routes/grants.js';
 import { thresholdRoutes } from './routes/thresholds.js';
 import { uploadRoutes } from './routes/uploads.js';
+import { wellnessRoutes } from './routes/wellness.js';
 
 const app = Fastify({ logger: { level: 'info' } });
 
@@ -61,6 +62,7 @@ await app.register(thresholdRoutes);
 await app.register(curveRoutes);
 await app.register(trendRoutes);
 await app.register(uploadRoutes);
+await app.register(wellnessRoutes);
 await app.register(grantRoutes);
 
 await app.listen({ port: env.port, host: '0.0.0.0' });

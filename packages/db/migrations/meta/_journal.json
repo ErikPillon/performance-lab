@@ -43,6 +43,13 @@
       "when": 1788090997015,
       "tag": "0005_tiny_doctor_faustus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788111169777,
+      "tag": "0006_wealthy_blackheart",
+      "breakpoints": true
     }
   ]
 }

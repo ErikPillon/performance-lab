@@ -10,7 +10,7 @@
   },
   "scripts": {
     "generate": "drizzle-kit generate",
-    "migrate": "tsx src/migrate.ts",
+    "migrate": "node --env-file-if-exists=../../.env --import tsx src/migrate.ts",
     "studio": "drizzle-kit studio",
     "test": "node --env-file-if-exists=../../.env --test --import tsx \"src/**/*.test.ts\""
   },
