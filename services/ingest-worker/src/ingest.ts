@@ -69,7 +69,7 @@ export async function ingestBytes(opts: {
   const job: ParseJob = { rawFileId: row.id, athleteId, blobKey: key, source };
   // Job id = raw file id, so a redelivered webhook or a retried backfill
   // collapses onto one queued job instead of fanning out.
-  await parseQueue.add('parse', job, { jobId: row.id });
+  await parseQueue().add('parse', job, { jobId: row.id });
 
   return { rawFileId: row.id, sha256: hash, status: 'queued' };
 }

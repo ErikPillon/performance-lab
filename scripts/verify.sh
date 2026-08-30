@@ -26,7 +26,7 @@ for ws in packages/db packages/jobs services/api services/ingest-worker apps/web
   run "typecheck $ws" bash -c "cd $ws && npx tsc --noEmit"
 done
 
-for ws in packages/db services/api services/ingest-worker apps/web; do
+for ws in packages/db packages/jobs services/api services/ingest-worker apps/web; do
   run "test $ws" npm test --silent --workspace "$ws"
 done
 

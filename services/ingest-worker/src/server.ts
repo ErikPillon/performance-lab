@@ -16,9 +16,9 @@ export async function buildServer() {
       status: 'ok',
       athletes: athletes?.n ?? 0,
       queues: {
-        parse: await parseQueue.getJobCounts(),
-        load: await loadQueue.getJobCounts(),
-        pmc: await pmcQueue.getJobCounts(),
+        parse: await parseQueue().getJobCounts(),
+        load: await loadQueue().getJobCounts(),
+        pmc: await pmcQueue().getJobCounts(),
       },
     };
   });
@@ -92,9 +92,9 @@ export async function buildServer() {
       flagged,
       load: { methods, pmc },
       queues: {
-        parse: await parseQueue.getJobCounts(),
-        load: await loadQueue.getJobCounts(),
-        pmc: await pmcQueue.getJobCounts(),
+        parse: await parseQueue().getJobCounts(),
+        load: await loadQueue().getJobCounts(),
+        pmc: await pmcQueue().getJobCounts(),
       },
     };
   });

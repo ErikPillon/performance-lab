@@ -69,16 +69,31 @@ retry policy means a producer and a consumer cannot disagree about them.
 
 ---
 
-### ☐ 2a. Lazy queue connections
+### ☑ 2a. Lazy queue connections
 
-**Why.** `packages/jobs` opens a Redis connection at module load, so importing
-anything that transitively reaches it connects — which hung the API test suite
+**Why.** `packages/jobs` opened a Redis connection at module load, so importing
+anything that transitively reached it connected — which hung the API test suite
 until the pure validation rules were split into their own module. Module-load
 side effects are the underlying problem.
 
-**What.** Create queues and the connection on first use.
+**Done.** Queues and the connection are created on first use. `connection()`,
+`parseQueue()` and friends are memoised accessors rather than eagerly-built
+objects; call sites gained `()`, which is the point — a connection is now
+visible where it is opened instead of hiding in an import.
 
-**Effort** small.
+`REDIS_URL` is read at call time too, so a script can set it after importing
+and an unset value fails with a usable stack rather than during someone else's
+import.
+
+Shutdown is bounded: `closeQueues()` races the graceful `QUIT` against a 2 s
+timer and then drops the socket. A clean quit needs a server to answer it, and
+when Redis is already gone the old path waited for a reply that was never
+coming — a process handling SIGTERM would hang until something killed it
+harder.
+
+`packages/jobs` now has tests, and the first one is the regression guard:
+importing the module must leave `isConnected()` false. It deliberately needs no
+running Redis — if it ever does, the invariant is already broken.
 
 ---
 

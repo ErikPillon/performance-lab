@@ -7,7 +7,7 @@
  *
  * The dashboard can trigger the same operation; both call `recomputeAthlete`.
  */
-import { connection } from '@lab/jobs';
+import { closeQueues } from '@lab/jobs';
 import { sql as pg } from '@lab/db';
 import { findAthlete, recomputeAthlete } from './recomputeAll.js';
 
@@ -52,5 +52,5 @@ for (const [sport, rate] of Object.entries(result.rates)) {
 }
 console.log(`\nwrote ${result.days} daily rows`);
 
-await connection.quit();
+await closeQueues();
 await pg.end();

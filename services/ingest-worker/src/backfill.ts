@@ -11,7 +11,7 @@ import { basename, extname, join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { athlete, athleteThreshold, db, sql as pg } from '@lab/db';
 import { ingestBytes } from './ingest.js';
-import { connection, parseQueue } from '@lab/jobs';
+import { closeQueues, parseQueue } from '@lab/jobs';
 
 const SUPPORTED = new Set(['.fit']);
 
@@ -100,7 +100,7 @@ await pooled(files, 8, async (file) => {
 
 const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 console.log(`\nenqueued in ${elapsed}s: ${queued} new, ${duplicate} already present, ${failed} errors`);
-console.log('queue:', await parseQueue.getJobCounts());
+console.log('queue:', await parseQueue().getJobCounts());
 console.log('\nthe parse worker drains this in the background; watch it with:');
 console.log('  curl -s localhost:8002/ingest/status | jq');
 
@@ -115,6 +115,5 @@ if (!threshold) {
   console.log(`  npm run recompute -- --athlete "${athleteName}"`);
 }
 
-await parseQueue.close();
-await connection.quit();
+await closeQueues();
 await pg.end();

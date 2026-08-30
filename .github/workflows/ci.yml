@@ -46,7 +46,7 @@ jobs:
           done
       - name: test
         run: |
-          for ws in packages/db services/api services/ingest-worker apps/web; do
+          for ws in packages/db packages/jobs services/api services/ingest-worker apps/web; do
             echo "::group::$ws"
             npm test --workspace "$ws"
             echo "::endgroup::"

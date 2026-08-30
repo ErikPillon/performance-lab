@@ -9,7 +9,7 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { sql as pg } from '@lab/db';
-import { connection } from '@lab/jobs';
+import { closeQueues } from '@lab/jobs';
 import { env } from './env.js';
 import { activityRoutes } from './routes/activities.js';
 import { HttpError, resolveActor } from './access.js';
@@ -65,7 +65,7 @@ app.log.info(`api listening on :${env.port}`);
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     await app.close();
-    await connection.quit();
+    await closeQueues();
     await pg.end();
     process.exit(0);
   });

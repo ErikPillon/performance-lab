@@ -122,7 +122,7 @@ export async function thresholdRoutes(app: FastifyInstance) {
    */
   app.get<{ Params: { id: string } }>('/athletes/:id/recompute', async (req) => {
     await requireAthleteAccess(req, req.params.id);
-    const job = await recomputeQueue.getJob(`recompute-${req.params.id}`);
+    const job = await recomputeQueue().getJob(`recompute-${req.params.id}`);
     const state = job ? await job.getState() : null;
 
     const versions = await db

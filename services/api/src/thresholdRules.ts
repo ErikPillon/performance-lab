@@ -3,8 +3,12 @@
  *
  * Deliberately free of imports: these are pure predicates over user input that
  * rescales every derived number in the system, and keeping them independent of
- * the route module means they can be tested without opening a database or a
- * queue connection.
+ * the route module means they can be tested without standing up a database.
+ *
+ * The split was originally forced — importing the route module reached the
+ * queue package, which connected to Redis at module load and hung the suite.
+ * That is fixed at the source now (queues connect on first use), so this file
+ * stands on its own merits: the rules are worth testing directly.
  */
 
 export interface ThresholdInput {

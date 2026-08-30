@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "dependencies": {
     "bullmq": "^5.34.5",
     "ioredis": "^5.4.2"
@@ -12,5 +14,9 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "typescript": "^5.7.2"
+  },
+  "scripts": {
+    "test": "node --env-file-if-exists=../../.env --test --import tsx \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
   }
 }
