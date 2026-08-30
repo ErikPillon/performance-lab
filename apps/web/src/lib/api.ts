@@ -2,15 +2,26 @@
 
 const BASE = '/api';
 
+/** Thrown for 401 so the app can show the sign-in screen rather than an error. */
+export class NotSignedInError extends Error {
+  constructor() {
+    super('not signed in');
+  }
+}
+
 async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
   const url = new URL(`${BASE}${path}`, window.location.origin);
   for (const [k, v] of Object.entries(params ?? {})) {
     if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   }
-  const res = await fetch(url);
+  // Session cookie travels with every request; same origin, so no CORS dance.
+  const res = await fetch(url, { credentials: 'include' });
+  if (res.status === 401) throw new NotSignedInError();
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} on ${path}`);
   return (await res.json()) as T;
 }
+
+export type Scope = 'training' | 'wellness' | 'location';
 
 export interface Athlete {
   id: string;
@@ -18,6 +29,27 @@ export interface Athlete {
   sex: string;
   timezone: string;
   activities: number;
+  relationship?: 'owner' | 'coach';
+  scopes?: Scope[];
+}
+
+export interface Me {
+  user: { userId: string; email: string; name: string } | null;
+  athletes: { athleteId: string; scopes: Scope[]; relationship: 'owner' | 'coach' }[];
+  signupOpen: boolean;
+}
+
+export interface Grant {
+  id: string;
+  status: 'pending' | 'active' | 'revoked';
+  scopes: Scope[];
+  note: string | null;
+  inviteCode: string;
+  createdAt: string;
+  expiresAt: string | null;
+  acceptedAt: string | null;
+  coachName: string | null;
+  coachEmail: string | null;
 }
 
 export interface PmcDay {
@@ -128,6 +160,7 @@ export interface RecomputeStatus {
 async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
+    credentials: 'include',
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -160,7 +193,19 @@ export interface CurveResponse {
 }
 
 export const api = {
+  me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
+  grants: (id: string) => get<{ grants: Grant[] }>(`/athletes/${id}/grants`),
+  createGrant: (id: string, body: { scopes: Scope[]; note?: string; expiresInDays?: number }) =>
+    send<{ grant: Grant }>(`/athletes/${id}/grants`, 'POST', body),
+  revokeGrant: (id: string, grantId: string) =>
+    send<{ revoked: number }>(`/athletes/${id}/grants/${grantId}`, 'DELETE'),
+  acceptInvite: (code: string) =>
+    send<{ grant: Grant; athlete: string | null }>('/grants/accept', 'POST', { code }),
+  coaching: () =>
+    get<{ coaching: { athleteId: string; displayName: string; scopes: Scope[]; since: string }[] }>(
+      '/coaching',
+    ),
   summary: (id: string) => get<Summary>(`/athletes/${id}/summary`),
   pmc: (id: string, from?: string, to?: string) =>
     get<{ series: PmcDay[] }>(`/athletes/${id}/pmc`, { from, to }),

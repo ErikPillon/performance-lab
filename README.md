@@ -276,6 +276,39 @@ activity, mangle units, reorder samples, or silently accept impossible values.
 npm -w @lab/ingest-worker test
 ```
 
+## Authentication
+
+Better Auth as a library, sessions in the same Postgres as the training data.
+That is the whole argument for it over a hosted identity service: a coach's
+access to an athlete is a foreign key, not a reconciliation against an external
+system, and nothing needs to reach the internet.
+
+**First run.** Open the dashboard and create an account. The first one created
+claims any athlete imported before authentication existed, so setting up does
+not need psql. Afterwards, set `AUTH_ALLOW_SIGNUP=false` to close registration —
+though an account with no athlete and no grants can see nothing either way.
+
+**Sharing.** Access is athlete-initiated: you generate a scoped invite code and
+hand it over. There is no endpoint where a coach names an athlete and requests
+access, which is the right default for health data and means the API cannot be
+used to probe whether a given athlete exists — an athlete you cannot see returns
+404, never 403.
+
+Scopes are enforced, not decorative:
+
+| scope | grants |
+|---|---|
+| `training` | activities, load, fitness model, curves |
+| `wellness` | resting HR, HRV, sleep, weight (once recorded) |
+| `location` | GPS traces — stripped from stream payloads without it |
+
+Coaches read. Thresholds, recompute and invite management are owner-only.
+
+Every athlete-scoped route resolves access through `services/api/src/access.ts`
+and nowhere else, and a structural test fails if a route is added without a
+guard. That test exists because the first hand-run audit found
+`/athletes/:id/zones` unprotected.
+
 ## Dashboard
 
 `docker compose --profile apps up -d` or `npm run web` → http://localhost:3100

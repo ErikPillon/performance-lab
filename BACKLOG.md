@@ -176,7 +176,7 @@ shows that.
 
 ## Tier 2 — Before it leaves the laptop
 
-### ☐ 7. Authentication and the athlete/coach model
+### ◔ 7. Authentication and the athlete/coach model
 
 **Why.** The API is unauthenticated and assumes a single athlete — it literally
 picks the first row from `/athletes`. This is the largest architectural debt in
@@ -188,6 +188,35 @@ the project and it gets more expensive every feature that assumes it.
 `athlete_id` so a forgotten WHERE clause cannot leak across athletes.
 
 **Effort** large. **Blocks:** anything multi-user, and any public deployment.
+
+**Done.** Better Auth mounted in the API, sessions in Postgres, email and
+password. Every athlete-scoped route resolves access through one module, and a
+structural test fails the build if a route is added without a guard — that audit
+caught `/athletes/:id/zones` shipping unprotected the first time it ran.
+
+The grant model works end to end: athlete-initiated invites with per-scope
+consent, single-use codes that expire, and revocation. Scopes are a real
+disclosure boundary rather than a label — a coach granted `training` alone
+receives the effort traces with `lat`/`lon` stripped from the payload, and
+adding `location` restores them. Coaches read; thresholds, recompute and
+invites are owner-only. An athlete a caller cannot see returns 404, not 403, so
+the API cannot be used to discover that an id exists.
+
+**Still open — the deliberate remainder:**
+
+- ☐ **Row-level security.** The centralised guard is the enforcement today. RLS
+  was the belt-and-braces argument for putting sessions in the same database,
+  and it still applies, but doing it properly means a request-scoped
+  `SET LOCAL` inside a transaction on every read plus a non-superuser app role.
+  Half-done RLS — one path that forgets to set the variable — is worse than
+  none, so it is its own task rather than a rushed addition to this one.
+- ☐ **Email verification and password reset.** Both need an SMTP route out of
+  the house. Verification is off deliberately; on a LAN with one account it
+  buys nothing, and it becomes necessary the moment this is publicly reachable.
+- ☐ **Social sign-in.** A configuration change here plus a provider app; not a
+  prerequisite for using this on your own network.
+- ☐ **Session revocation UI.** Sessions are listed in the database but there is
+  no "sign out everywhere".
 
 ### ☐ 8. Browser upload
 
@@ -307,6 +336,10 @@ Small, but each one is a wrong number rather than a missing feature.
   agree on every activity in this dataset — all sessions are daytime in
   CET/CEST — but a session starting just after local midnight, or any training
   done after long-haul travel, would land on different days in the two views.
+- ☐ **`tsx` runs the TypeScript services in production images.** It works and
+  is pinned, but compiling to JavaScript would drop a build tool and its native
+  esbuild binary from the runtime image — the same binary that broke the image
+  build until the Dockerfiles moved to `npm ci`.
 - ☐ **Route tiles leak location to a third party by default.** Every map view
   tells the public OSM tile server roughly where you train. Self-hosting tiles
   closes it; `VITE_MAP_TILES` is already wired for that.

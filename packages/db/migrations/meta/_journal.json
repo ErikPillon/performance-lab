@@ -29,6 +29,20 @@
       "when": 1788086489927,
       "tag": "0003_dizzy_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788090594648,
+      "tag": "0004_lovely_zeigeist",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788090997015,
+      "tag": "0005_tiny_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }

@@ -2,9 +2,11 @@ import { desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { activity, activityLoad, db, resolveThresholdsAt } from '@lab/db';
 import { env } from '../env.js';
+import { requireActivityAccess } from '../access.js';
 
 export async function activityRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/activities/:id', async (req, reply) => {
+    await requireActivityAccess(req, req.params.id);
     const [row] = await db
       .select()
       .from(activity)
@@ -38,6 +40,7 @@ export async function activityRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string }; Querystring: { points?: string; channels?: string } }>(
     '/activities/:id/streams',
     async (req, reply) => {
+      const { access } = await requireActivityAccess(req, req.params.id);
       const [row] = await db
         .select({ streamsKey: activity.streamsKey })
         .from(activity)
@@ -62,7 +65,19 @@ export async function activityRoutes(app: FastifyInstance) {
       if (!res.ok) {
         return reply.code(502).send({ error: `analytics ${res.status}` });
       }
-      return await res.json();
+      const payload = (await res.json()) as {
+        channels: string[];
+        series: Record<string, unknown>;
+      };
+
+      // The `location` scope is a real disclosure boundary, not a label: a
+      // coach granted training data alone gets the effort traces without the
+      // coordinates that show where the athlete lives.
+      if (!access.scopes.includes('location')) {
+        for (const channel of ['lat', 'lon']) delete payload.series[channel];
+        payload.channels = payload.channels.filter((c) => c !== 'lat' && c !== 'lon');
+      }
+      return payload;
     },
   );
 }

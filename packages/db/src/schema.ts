@@ -1,7 +1,11 @@
 import {
   pgTable, pgEnum, uuid, text, integer, doublePrecision, timestamp, date,
-  jsonb, index, uniqueIndex, smallint, primaryKey,
+  jsonb, index, uniqueIndex, smallint, primaryKey, boolean,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { user } from './auth-schema.js';
+
+export * from './auth-schema.js';
 
 /**
  * Canonical sports. `other` is deliberate: the FIT spec has ~90 sport codes and
@@ -24,6 +28,14 @@ export const ingestStatusEnum = pgEnum('ingest_status', [
 
 export const athlete = pgTable('athlete', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * The account that owns this athlete's data.
+   *
+   * Nullable so athletes imported before authentication existed are not
+   * orphaned; a null owner is visible to nobody until claimed, which is the
+   * safe direction for a column that gates access.
+   */
+  userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
   displayName: text('display_name').notNull(),
   sex: sexEnum('sex').notNull().default('unspecified'),
   birthDate: date('birth_date'),
@@ -245,6 +257,51 @@ export const athleteDaily = pgTable('athlete_daily', {
   index('athlete_daily_date_idx').on(t.date),
 ]);
 
+export const grantStatusEnum = pgEnum('grant_status', ['pending', 'active', 'revoked']);
+
+/**
+ * A coach's access to an athlete's data.
+ *
+ * Athlete-initiated by design: the athlete creates an invite code and hands it
+ * over, rather than a coach requesting access to a named athlete. That is the
+ * right default for health data, and it removes a whole class of enumeration
+ * bugs — there is no endpoint that takes someone else's athlete id and asks for
+ * permission.
+ *
+ * Scopes are separate because they are genuinely different disclosures: plenty
+ * of athletes will share power and heart rate but not the GPS traces that show
+ * where they live.
+ */
+export const coachAthleteGrant = pgTable('coach_athlete_grant', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  /** Null until the invite is redeemed, at which point the redeemer is bound in. */
+  coachUserId: text('coach_user_id').references(() => user.id, { onDelete: 'cascade' }),
+
+  /** Single-use, unguessable, and the only thing a coach needs to present. */
+  inviteCode: text('invite_code').notNull().unique(),
+  status: grantStatusEnum('status').notNull().default('pending'),
+
+  /** Subsets of `training`, `wellness`, `location`. */
+  scopes: jsonb('scopes').$type<string[]>().notNull().default(['training']),
+  /** Coaches read; nothing in this model grants write access to an athlete. */
+  canComment: boolean('can_comment').notNull().default(false),
+
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (t) => [
+  index('grant_athlete_idx').on(t.athleteId, t.status),
+  index('grant_coach_idx').on(t.coachUserId, t.status),
+  // One live grant per coach per athlete; re-inviting replaces rather than
+  // accumulating parallel grants with different scopes.
+  uniqueIndex('grant_unique_active')
+    .on(t.athleteId, t.coachUserId)
+    .where(sql`status = 'active'`),
+]);
+
 /**
  * Per-activity mean-maximal curve: the best average a channel sustained over
  * each window length.
@@ -283,3 +340,4 @@ export type ActivityLoad = typeof activityLoad.$inferSelect;
 export type NewActivityLoad = typeof activityLoad.$inferInsert;
 export type AthleteDaily = typeof athleteDaily.$inferSelect;
 export type ActivityCurve = typeof activityCurve.$inferSelect;
+export type CoachAthleteGrant = typeof coachAthleteGrant.$inferSelect;

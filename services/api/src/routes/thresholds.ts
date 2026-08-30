@@ -4,10 +4,12 @@ import { activityLoad, athleteThreshold, db } from '@lab/db';
 import { recomputeQueue, requestRecompute } from '@lab/jobs';
 import { env } from '../env.js';
 import { advisories, validate, type ThresholdInput } from '../thresholdRules.js';
+import { requireAthleteAccess, requireOwner } from '../access.js';
 
 export async function thresholdRoutes(app: FastifyInstance) {
   /** Full effective-dated history, newest first. */
   app.get<{ Params: { id: string } }>('/athletes/:id/thresholds', async (req) => {
+    await requireAthleteAccess(req, req.params.id);
     const rows = await db
       .select()
       .from(athleteThreshold)
@@ -26,6 +28,9 @@ export async function thresholdRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: ThresholdInput }>(
     '/athletes/:id/thresholds',
     async (req, reply) => {
+      // Only the athlete changes their own thresholds. A coach reading them is
+      // fine; a coach rescaling every load number in the history is not.
+      await requireOwner(req, req.params.id);
       const errors = validate(req.body ?? {});
       if (errors.length) return reply.code(422).send({ error: 'invalid thresholds', errors });
 
@@ -75,6 +80,7 @@ export async function thresholdRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string; effectiveFrom: string } }>(
     '/athletes/:id/thresholds/:effectiveFrom',
     async (req, reply) => {
+      await requireOwner(req, req.params.id);
       const deleted = await db
         .delete(athleteThreshold)
         .where(
@@ -94,6 +100,9 @@ export async function thresholdRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { estimateThresholds?: boolean; preference?: string } }>(
     '/athletes/:id/recompute',
     async (req, reply) => {
+      // A recompute is minutes of work on shared infrastructure; the athlete
+      // decides when it runs.
+      await requireOwner(req, req.params.id);
       const preference = req.body?.preference ?? 'consistency';
       if (!['consistency', 'precision'].includes(preference)) {
         return reply.code(422).send({ error: 'preference must be "consistency" or "precision"' });
@@ -112,6 +121,7 @@ export async function thresholdRoutes(app: FastifyInstance) {
    * results are behind the code that would produce them now.
    */
   app.get<{ Params: { id: string } }>('/athletes/:id/recompute', async (req) => {
+    await requireAthleteAccess(req, req.params.id);
     const job = await recomputeQueue.getJob(`recompute-${req.params.id}`);
     const state = job ? await job.getState() : null;
 

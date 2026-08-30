@@ -1,12 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api } from './lib/api';
+import { signOut } from './lib/auth';
 import { Activities } from './pages/Activities';
 import { ActivityDetail } from './pages/ActivityDetail';
 import { Calendar } from './pages/Calendar';
 import { Curve } from './pages/Curve';
 import { Dashboard } from './pages/Dashboard';
+import { SignIn } from './pages/SignIn';
+import { Sharing } from './pages/Sharing';
 import { Thresholds } from './pages/Thresholds';
 import { ErrorNote, Loading } from './components/ui';
 
@@ -39,28 +42,63 @@ function useTheme() {
 export default function App() {
   const [theme, setTheme] = useTheme();
   const { pathname } = useLocation();
-  const athletes = useQuery({ queryKey: ['athletes'], queryFn: api.athletes });
+  const queryClient = useQueryClient();
 
-  if (athletes.isError) return <Shell theme={theme} setTheme={setTheme} nav={null}><ErrorNote error={athletes.error} /></Shell>;
-  if (!athletes.data) return <Shell theme={theme} setTheme={setTheme} nav={null}><Loading what="athletes" /></Shell>;
+  // `/me` answers "who is this" and "what can they see" in one call, so there
+  // is never a render where the user is known but their athletes are not.
+  const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false });
 
-  const athlete = athletes.data.athletes[0];
-  if (!athlete) {
+  if (me.isError) {
     return (
       <Shell theme={theme} setTheme={setTheme} nav={null}>
-        <div className="panel" style={{ padding: 24 }}>
-          <strong>No athletes yet.</strong>
+        <ErrorNote error={me.error} />
+      </Shell>
+    );
+  }
+  if (!me.data) {
+    return (
+      <Shell theme={theme} setTheme={setTheme} nav={null}>
+        <Loading what="session" />
+      </Shell>
+    );
+  }
+
+  if (!me.data.user) {
+    return (
+      <Shell theme={theme} setTheme={setTheme} nav={null}>
+        <SignIn
+          signupOpen={me.data.signupOpen}
+          onDone={() => queryClient.invalidateQueries()}
+        />
+      </Shell>
+    );
+  }
+
+  const access = me.data.athletes[0];
+  if (!access) {
+    return (
+      <Shell theme={theme} setTheme={setTheme} nav={null} user={me.data.user}>
+        <div className="panel" style={{ padding: 24, maxWidth: 620 }}>
+          <strong>Nothing to show yet.</strong>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 0 }}>
+            This account owns no athlete and has not been given access to one. Either import your
+            own activities:
+          </p>
+          <pre style={code}>npm run backfill -- ./inputs --athlete "Your Name"</pre>
+          <pre style={code}>npm run recompute -- --athlete "Your Name"</pre>
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>
-            Import some activities first:
-            <br />
-            <code>npm run backfill -- ./inputs --athlete "Your Name"</code>
-            <br />
-            <code>npm run recompute -- --athlete "Your Name"</code>
+            …or redeem an invite code from an athlete on the{' '}
+            <Link to="/sharing" style={{ color: 'var(--accent)' }}>
+              sharing page
+            </Link>
+            .
           </p>
         </div>
       </Shell>
     );
   }
+  const athlete = { id: access.athleteId };
+  const isOwner = access.relationship === 'owner';
 
   const nav = (
     <nav style={{ display: 'flex', gap: 2 }}>
@@ -69,7 +107,9 @@ export default function App() {
         { to: '/calendar', label: 'Calendar' },
         { to: '/activities', label: 'Activities' },
         { to: '/curve', label: 'Curve' },
-        { to: '/thresholds', label: 'Thresholds' },
+        // Thresholds rescale everything derived, so only the athlete sees it.
+        ...(isOwner ? [{ to: '/thresholds', label: 'Thresholds' }] : []),
+        { to: '/sharing', label: 'Sharing' },
       ].map((item) => {
         const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
         return (
@@ -94,14 +134,15 @@ export default function App() {
   );
 
   return (
-    <Shell theme={theme} setTheme={setTheme} nav={nav} athleteName={athlete.displayName}>
+    <Shell theme={theme} setTheme={setTheme} nav={nav} user={me.data.user} relationship={access.relationship}>
       <Routes>
         <Route path="/" element={<Dashboard athleteId={athlete.id} />} />
         <Route path="/activities" element={<Activities athleteId={athlete.id} />} />
         <Route path="/activities/:id" element={<ActivityDetail />} />
         <Route path="/calendar" element={<Calendar athleteId={athlete.id} />} />
         <Route path="/curve" element={<Curve athleteId={athlete.id} />} />
-        <Route path="/thresholds" element={<Thresholds athleteId={athlete.id} />} />
+        {isOwner && <Route path="/thresholds" element={<Thresholds athleteId={athlete.id} />} />}
+        <Route path="/sharing" element={<Sharing athleteId={athlete.id} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
@@ -113,13 +154,15 @@ function Shell({
   nav,
   theme,
   setTheme,
-  athleteName,
+  user,
+  relationship,
 }: {
   children: React.ReactNode;
   nav: React.ReactNode;
   theme: Theme;
   setTheme: (t: Theme) => void;
-  athleteName?: string;
+  user?: { email: string; name: string } | null;
+  relationship?: 'owner' | 'coach';
 }) {
   const next: Record<Theme, Theme> = { system: 'light', light: 'dark', dark: 'system' };
   const icon = { system: '◐', light: '☀', dark: '☾' }[theme];
@@ -154,7 +197,46 @@ function Shell({
           </Link>
           {nav}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-            {athleteName && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{athleteName}</span>}
+            {user && (
+              <span style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 7, alignItems: 'center' }}>
+                {user.name}
+                {relationship === 'coach' && (
+                  <span
+                    title="You are viewing this athlete as their coach"
+                    style={{
+                      fontSize: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      border: '1px solid var(--border)',
+                      color: 'var(--faint)',
+                    }}
+                  >
+                    coach
+                  </span>
+                )}
+              </span>
+            )}
+            {user && (
+              <button
+                onClick={async () => {
+                  await signOut();
+                  window.location.reload();
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: '5px 10px',
+                  borderRadius: 7,
+                  border: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                Sign out
+              </button>
+            )}
             <button
               onClick={() => setTheme(next[theme])}
               title={`Theme: ${theme}`}
@@ -180,3 +262,12 @@ function Shell({
     </div>
   );
 }
+
+const code: React.CSSProperties = {
+  background: 'var(--panel-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  padding: '7px 10px',
+  fontSize: 12,
+  overflowX: 'auto',
+};

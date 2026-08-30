@@ -2,6 +2,7 @@ import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { activityCurve, db } from '@lab/db';
 import { env } from '../env.js';
+import { requireAthleteAccess } from '../access.js';
 
 /**
  * Which channel best represents sustained effort, per sport.
@@ -27,6 +28,7 @@ export async function curveRoutes(app: FastifyInstance) {
     Params: { id: string };
     Querystring: { sport?: string; metric?: string; from?: string; to?: string };
   }>('/athletes/:id/curve', async (req, reply) => {
+    await requireAthleteAccess(req, req.params.id);
     const sport = req.query.sport ?? 'running';
 
     // Pick the first preferred metric that actually has data, so the default
@@ -98,6 +100,7 @@ export async function curveRoutes(app: FastifyInstance) {
 
   /** Which sports have curve data, so the UI offers only real options. */
   app.get<{ Params: { id: string } }>('/athletes/:id/curve/sports', async (req) => {
+    await requireAthleteAccess(req, req.params.id);
     const rows = await db
       .select({ sport: activityCurve.sport, activities: sql<number>`count(DISTINCT ${activityCurve.activityId})::int` })
       .from(activityCurve)

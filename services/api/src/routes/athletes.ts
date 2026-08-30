@@ -1,6 +1,7 @@
-import { and, asc, count, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { activity, activityLoad, athlete, athleteDaily, athleteThreshold, db, resolveThresholdsAt } from '@lab/db';
+import { accessibleAthletes, requireActor, requireAthleteAccess } from '../access.js';
 
 /** ISO date string, or undefined if absent/unparseable. */
 function isoDate(value: unknown): string | undefined {
@@ -10,7 +11,14 @@ function isoDate(value: unknown): string | undefined {
 }
 
 export async function athleteRoutes(app: FastifyInstance) {
-  app.get('/athletes', async () => {
+  app.get('/athletes', async (req) => {
+    // Only athletes this caller owns or coaches. An empty list is the correct
+    // answer for a new account, not an error.
+    const actor = requireActor(req);
+    const allowed = await accessibleAthletes(actor.userId);
+    if (allowed.length === 0) return { athletes: [] };
+    const allowedIds = allowed.map((a) => a.athleteId);
+
     // A left join and group-by rather than a correlated subquery: the raw form
     // needs an inner alias, and Drizzle renders the outer table reference in a
     // way that did not bind to it, silently returning zero for every athlete.
@@ -24,9 +32,18 @@ export async function athleteRoutes(app: FastifyInstance) {
       })
       .from(athlete)
       .leftJoin(activity, eq(activity.athleteId, athlete.id))
+      .where(inArray(athlete.id, allowedIds))
       .groupBy(athlete.id, athlete.displayName, athlete.sex, athlete.timezone)
       .orderBy(asc(athlete.displayName));
-    return { athletes: rows };
+
+    const relationships = new Map(allowed.map((a) => [a.athleteId, a]));
+    return {
+      athletes: rows.map((row) => ({
+        ...row,
+        relationship: relationships.get(row.id)?.relationship ?? 'coach',
+        scopes: relationships.get(row.id)?.scopes ?? [],
+      })),
+    };
   });
 
   /**
@@ -35,6 +52,7 @@ export async function athleteRoutes(app: FastifyInstance) {
    */
   app.get<{ Params: { id: string } }>('/athletes/:id/summary', async (req, reply) => {
     const { id } = req.params;
+    await requireAthleteAccess(req, id);
     const [who] = await db.select().from(athlete).where(eq(athlete.id, id)).limit(1);
     if (!who) return reply.code(404).send({ error: 'unknown athlete' });
 
@@ -119,6 +137,7 @@ export async function athleteRoutes(app: FastifyInstance) {
     '/athletes/:id/pmc',
     async (req) => {
       const { id } = req.params;
+      await requireAthleteAccess(req, id);
       const from = isoDate(req.query.from);
       const to = isoDate(req.query.to);
 
@@ -153,6 +172,7 @@ export async function athleteRoutes(app: FastifyInstance) {
     Querystring: { limit?: string; offset?: string; sport?: string; from?: string; to?: string };
   }>('/athletes/:id/activities', async (req) => {
     const { id } = req.params;
+    await requireAthleteAccess(req, id);
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
     const offset = Math.max(Number(req.query.offset ?? 0), 0);
 
@@ -204,6 +224,7 @@ export async function athleteRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string } }>(
     '/athletes/:id/zones',
     async (req) => {
+      await requireAthleteAccess(req, req.params.id);
       // Bound parameters go in as ISO strings with an explicit cast: a raw
       // template cannot serialise a JS Date, and an untyped string leaves
       // Postgres to guess at the comparison type.
