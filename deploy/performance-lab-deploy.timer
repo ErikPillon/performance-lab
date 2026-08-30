@@ -1,0 +1,21 @@
+# How often the server asks GitHub whether there is anything new.
+#
+# Five minutes is a deliberate middle: fast enough that a push feels deployed
+# by the time you have switched windows, slow enough that a bad commit is not
+# live before CI has finished failing on it. CI must go green before an image
+# exists to pull at all, which is the real gate.
+
+[Unit]
+Description=performance-lab: check for a new release every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Without this every server with this timer would hit the registry on the same
+# second. With one server it mostly avoids a thundering herd against yourself
+# after a reboot.
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

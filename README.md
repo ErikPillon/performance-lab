@@ -295,7 +295,18 @@ curl -s localhost:8002/ingest/status | jq
 ## Tests
 
 ```bash
-cd services/analytics && ./.venv/bin/python -m pytest tests -q
+npm run verify
+```
+
+Runs everything CI runs, in the same order: typechecks every workspace, the
+Node test suites, the Python suite, and a production build of the dashboard.
+A green run here means a green pipeline — that is the whole point of it being
+one command rather than a list in a README.
+
+Individual suites, when you want a faster loop:
+
+```bash
+cd services/analytics && ./.venv/bin/python -m pytest -q
 ```
 
 The Python suite runs against the real corpus in `inputs/` and skips when it is
@@ -305,6 +316,19 @@ activity, mangle units, reorder samples, or silently accept impossible values.
 ```bash
 npm -w @lab/ingest-worker test
 ```
+
+## Deployment
+
+Push to `main` → CI typechecks, tests, and checks the migrations apply to an
+empty database → four images are published to GHCR → the server's timer pulls
+them within five minutes, migrates, restarts, and rolls back on its own if the
+API fails its healthcheck.
+
+The server pulls rather than being pushed to: it sits behind NAT, so this needs
+no inbound port, no tunnel, and no deploy credentials on a runner.
+
+[`deploy/README.md`](deploy/README.md) is the full runbook — first-time setup,
+what is exposed, backups, and what to do when a deploy fails.
 
 ## Authentication
 

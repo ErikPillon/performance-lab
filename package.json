@@ -22,6 +22,8 @@
     "recompute": "npm -w @lab/ingest-worker run recompute --",
     "api": "npm -w @lab/api run dev",
     "web": "npm -w @lab/web run dev",
-    "dev": "echo 'run in separate terminals: npm run api | npm run worker | npm run web'"
+    "dev": "echo 'run in separate terminals: npm run api | npm run worker | npm run web'",
+    "verify": "bash scripts/verify.sh",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   }
 }

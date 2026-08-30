@@ -1,0 +1,14 @@
+# 03:20 local, daily. The odd minute is deliberate — every cron job in the
+# world runs at :00, and this one wants the disk to itself.
+
+[Unit]
+Description=performance-lab: nightly backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=5min
+# Catches up after the machine was off at 03:20 rather than skipping a day.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

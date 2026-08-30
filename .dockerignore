@@ -1,0 +1,49 @@
+# The Dockerfiles copy whole workspace directories after running `npm ci`, so
+# anything matched here would otherwise land on top of a correctly installed
+# Linux dependency tree — including macOS-native binaries like esbuild and
+# rollup, which then fail at runtime rather than at build time.
+node_modules
+**/node_modules
+
+# Personal training data. Nothing in any image needs it, and it is 46 MB of
+# private FIT files that should never be near a build context.
+inputs
+data
+lab
+
+# Secrets. .env.example is the committed template and carries none, but a real
+# .env must never be readable from a layer.
+.env
+.env.*
+!.env.example
+
+# Build output — every image rebuilds this itself from source.
+dist
+**/dist
+*.tsbuildinfo
+
+# Local state that would bust the build cache on every run without changing
+# what gets built.
+.git
+.github
+.venv
+**/.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+**/.pytest_cache
+.vite
+.turbo
+
+# Host-specific and editor clutter.
+.DS_Store
+**/.DS_Store
+.vscode
+.idea
+caddy-root-ca.crt
+*.log
+
+# Docs and scripts are not inputs to any image.
+README.md
+BACKLOG.md
+scripts

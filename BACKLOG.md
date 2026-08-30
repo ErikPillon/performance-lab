@@ -251,15 +251,43 @@ Security headers include HSTS and a CSP tight enough to be worth having:
 third party. Verified against the real app — the map, charts and auth all work
 under it.
 
-**Still open — backup and replication:**
+**Done — CI/CD.** `npm run verify` runs locally exactly what GitHub Actions
+runs, so a green local run means a green pipeline. CI typechecks, tests both
+runtimes, and applies the migration chain to an empty Postgres — a migration
+that has only ever run against a database it half-built is a migration that
+breaks on the first real deploy. On `main` it publishes four images to GHCR.
 
-- ☐ **Postgres streaming replica and pgBackRest to the second box.** The
-  database currently exists in exactly one place.
-- ☐ **MinIO bucket replication**, same reasoning: the raw FIT blobs are the
-  thing everything else is rebuilt from, and losing them is the one
-  unrecoverable failure.
-- ☐ **Weekly encrypted offsite snapshot**, and an actual restore rehearsal.
-  Untested backups are not backups.
+Deployment is pull-based: a systemd timer on the server checks every five
+minutes, migrates before swapping containers, and rolls back on its own if the
+API does not pass its healthcheck. The server is behind NAT, so pulling needs
+no inbound port, no tunnel, and no deploy key on a runner. `deploy/README.md`
+is the runbook.
+
+Also fixed on the way through: there was no `.dockerignore`, so the build
+context was 1.3 GB — including `inputs/`, and including `apps/web/node_modules`,
+78 MB of macOS-native binaries that `COPY apps/web` layered on top of a
+correctly installed Linux tree. Context is now ~1 MB.
+
+**Done — backup.** `scripts/backup.sh` snapshots Postgres (`pg_dump -Fc`) and
+the MinIO volume nightly, keeps 14, and rsyncs to a second machine when
+`BACKUP_REMOTE` is set. `scripts/restore.sh --verify` rehearses a restore into
+a throwaway container and counts the rows, touching nothing live.
+
+This is deliberately dumps rather than the streaming replica the original plan
+called for. For 417 activities on a personal system, a nightly dump with a
+rehearsed restore is worth more than continuous replication that is never
+tested — the failure mode that actually happens is "the backups were empty
+since March", not "we lost the last six hours".
+
+**Still open:**
+
+- ☐ **Set `BACKUP_REMOTE`.** Until the second box exists the snapshots sit on
+  the disk they protect, which defends against deleting the wrong row and
+  against nothing else.
+- ☐ **Encrypted offsite.** LAN replication survives a dead SSD, not a burst
+  pipe or a burglary. `age` or `restic` to object storage.
+- ☐ **Streaming replication**, if the recovery point objective ever needs to be
+  tighter than "last night". Not yet worth the operational weight.
 
 ---
 

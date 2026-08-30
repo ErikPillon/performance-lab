@@ -1,0 +1,18 @@
+# Nightly snapshot of the database and object store. Paired with the .timer.
+#
+#   sudo cp deploy/performance-lab-backup.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now performance-lab-backup.timer
+
+[Unit]
+Description=performance-lab: snapshot database and object store
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/performance-lab
+ExecStart=/opt/performance-lab/scripts/backup.sh
+TimeoutStartSec=1h
+StandardOutput=journal
+StandardError=journal

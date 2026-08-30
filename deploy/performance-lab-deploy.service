@@ -1,0 +1,28 @@
+# Checks for a new image and deploys it. Triggered by the matching .timer,
+# never enabled directly — a oneshot service with no timer would run once at
+# boot and never again.
+#
+# Install:
+#   sudo cp deploy/performance-lab-deploy.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now performance-lab-deploy.timer
+#
+# Watch it:  journalctl -u performance-lab-deploy.service -f
+# Run now:   sudo systemctl start performance-lab-deploy.service
+
+[Unit]
+Description=performance-lab: pull and deploy the newest published image
+# Deploying before Docker is accepting connections just fails noisily.
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/performance-lab
+ExecStart=/opt/performance-lab/scripts/deploy.sh
+# The script pulls, migrates, waits for the healthcheck, and rolls back on its
+# own if the new version does not come up. This is a ceiling, not a schedule.
+TimeoutStartSec=20m
+# Deploys are noisy on purpose: this is the only record of what changed and when.
+StandardOutput=journal
+StandardError=journal
