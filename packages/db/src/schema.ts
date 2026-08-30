@@ -220,6 +220,53 @@ export const activityLoad = pgTable('activity_load', {
 ]);
 
 /**
+ * Morning wellness readings: one row per athlete per day.
+ *
+ * Every field is optional and nullable on purpose. These are hand-entered
+ * before coffee, and a schema that demands all five gets none — a day with only
+ * a weight is worth more than a day skipped because the strap was flat.
+ *
+ * Keyed on local calendar date rather than a timestamp. A morning reading
+ * belongs to the day the athlete woke up on, and storing an instant would put
+ * a 06:00 CEST measurement on the previous day in UTC.
+ *
+ * This is also what finally gives `athlete_threshold.rest_hr` a source. Resting
+ * heart rate cannot be recovered from activity files, so it has been a
+ * hardcoded 50 feeding every heart-rate-reserve calculation in the system.
+ */
+export const athleteWellness = pgTable('athlete_wellness', {
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  date: date('date').notNull(),
+
+  /** Morning resting heart rate, bpm. */
+  restingHr: smallint('resting_hr'),
+  /**
+   * Heart-rate variability as RMSSD in milliseconds.
+   *
+   * Stored raw rather than as a vendor "readiness score": those are proprietary,
+   * differently scaled between devices, and not comparable across a device
+   * change. RMSSD is the measurement everyone derives their score from.
+   */
+  hrvRmssdMs: doublePrecision('hrv_rmssd_ms'),
+  sleepHours: doublePrecision('sleep_hours'),
+  /** Whatever the device calls sleep quality, 0-100. Vendor-specific by nature. */
+  sleepScore: smallint('sleep_score'),
+  weightKg: doublePrecision('weight_kg'),
+  /** Self-reported, 1 (wrecked) to 5 (fresh). Cheap, and often the best signal. */
+  feel: smallint('feel'),
+  note: text('note'),
+
+  source: sourceEnum('source').notNull().default('manual'),
+  recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // One row per day: a second reading corrects the first rather than adding to
+  // it, which is what makes the entry form an upsert. The key is also the only
+  // index this table needs — every read is "this athlete, this date range", and
+  // the primary key already indexes exactly that, in that order.
+  primaryKey({ columns: [t.athleteId, t.date] }),
+]);
+
+/**
  * Daily rollup and the fitness/fatigue model.
  *
  * Every calendar day gets a row, including rest days — those are when fatigue

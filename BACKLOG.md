@@ -428,12 +428,44 @@ scoring against what was executed.
 
 **Effort** large. **Depends on** #7.
 
-### ☐ 13. Wellness: HRV, resting HR, sleep, weight
+### ◔ 13. Wellness: HRV, resting HR, sleep, weight
 
 **Why.** Closes the loop on readiness, and gives resting HR a real source
 instead of the current hardcoded 50 (see #1).
 
-**What.** Manual entry plus import. Overlay on the PMC.
+**Done — manual entry and the PMC overlay.** `/wellness` records resting HR,
+HRV (RMSSD), sleep, weight, a 1–5 feel and a note, one row per day, upserted so
+correcting this morning overwrites rather than duplicates. Every field is
+optional on purpose: these are typed before coffee, and a schema demanding all
+five gets none.
+
+Charts use the same rolling median as the fitness trends, at a fortnight rather
+than six weeks — resting heart rate responds to a hard block in days, and a long
+window smooths away exactly the movement worth seeing.
+
+The PMC gained an optional overlay on its own right-hand axis, so a 40–60 bpm
+resting heart rate can be read against a 0–100 fitness curve without one of them
+flattening into a straight line.
+
+**The resting-HR bridge is a prompt, not an automatic write.** `/wellness`
+computes the median over the last 60 mornings and offers it; setting it stays a
+deliberate act on `/thresholds`. Resting HR is an effective-dated threshold, and
+silently rewriting it would rescale every TRIMP value in the athlete's history
+without anyone asking. It stays quiet below 14 mornings — under that it is one
+week's sleep quality, not a resting heart rate.
+
+A median rather than a mean, over a window rather than the latest reading: one
+bad night moves a mean and does not move a median. Verified against the real
+database inside a rolled-back transaction — two nights at 59 and 61 left a
+median of 48 untouched.
+
+**Still open:**
+
+- ☐ **Import.** Needs #15, and the backlog already rules out the Garmin
+  developer route. FIT files do not carry morning readings, so this stays
+  manual until there is a device path.
+- ☐ **Set the measured value.** The prompt appears once there are 14 mornings;
+  until then every heart-rate-reserve calculation still runs on the default 50.
 
 **Effort** medium.
 

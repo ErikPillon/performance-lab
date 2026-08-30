@@ -284,6 +284,42 @@ export interface ZoneTrendResponse {
   periods: { start: string; zones: Record<string, number> }[];
 }
 
+export interface WellnessEntry {
+  date: string;
+  restingHr: number | null;
+  hrvRmssdMs: number | null;
+  sleepHours: number | null;
+  sleepScore: number | null;
+  weightKg: number | null;
+  feel: number | null;
+  note: string | null;
+  source: string;
+  recordedAt: string;
+}
+
+export interface WellnessResponse {
+  entries: WellnessEntry[];
+  coverage: {
+    days: number;
+    withRestingHr: number;
+    withHrv: number;
+    withWeight: number;
+    withSleep: number;
+  } | null;
+}
+
+/** What the athlete's resting heart rate actually measures, for the threshold. */
+export interface RestingHrSuggestion {
+  days: number;
+  samples: number;
+  /** Null until there are enough mornings to mean anything. */
+  suggestion: number | null;
+  median: number | null;
+  low: number | null;
+  first: string | null;
+  last: string | null;
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -336,4 +372,12 @@ export const api = {
     id: string,
     params: { bucket?: 'week' | 'month'; sport?: string; from?: string; to?: string } = {},
   ) => get<ZoneTrendResponse>(`/athletes/${id}/zones/trend`, params),
+  wellness: (id: string, params: { from?: string; to?: string; limit?: number } = {}) =>
+    get<WellnessResponse>(`/athletes/${id}/wellness`, params),
+  saveWellness: (id: string, body: Record<string, unknown>) =>
+    send<{ entry: WellnessEntry; advisories: string[] }>(`/athletes/${id}/wellness`, 'POST', body),
+  deleteWellness: (id: string, date: string) =>
+    send<{ deleted: number }>(`/athletes/${id}/wellness/${date}`, 'DELETE'),
+  restingHrSuggestion: (id: string, days = 60) =>
+    get<RestingHrSuggestion>(`/athletes/${id}/wellness/resting-hr`, { days }),
 };

@@ -4,13 +4,36 @@ import type { PmcDay } from '../lib/api';
 import { Chart, themeColor, useThemeVersion } from './Chart';
 
 /**
+ * An optional wellness series drawn over the model.
+ *
+ * On its own scale and axis, because the whole point is to read a 40-60 bpm
+ * resting heart rate against a 0-100 fitness curve. Sharing an axis would
+ * flatten one of them into a straight line.
+ */
+export interface PmcOverlay {
+  label: string;
+  unit: string;
+  /** Value per ISO date; missing days are simply absent. */
+  byDate: Map<string, number | null>;
+  color: string;
+}
+
+/**
  * Fitness, fatigue and form over time.
  *
  * Daily load is drawn as faint bars behind the curves: the individual sessions
  * are what produced the shape, and hiding them makes the model look like it
  * arrived from nowhere.
  */
-export function PmcChart({ series, height = 300 }: { series: PmcDay[]; height?: number }) {
+export function PmcChart({
+  series,
+  height = 300,
+  overlay,
+}: {
+  series: PmcDay[];
+  height?: number;
+  overlay?: PmcOverlay;
+}) {
   const themeVersion = useThemeVersion();
   const data = useMemo<uPlot.AlignedData>(() => {
     const x = series.map((d) => new Date(`${d.date}T00:00:00Z`).getTime() / 1000);
@@ -20,8 +43,12 @@ export function PmcChart({ series, height = 300 }: { series: PmcDay[]; height?: 
       series.map((d) => d.ctl),
       series.map((d) => d.atl),
       series.map((d) => d.tsb),
+      // Always present as a channel so the series list and the data stay the
+      // same length; all-null when there is no overlay, which uPlot draws as
+      // nothing.
+      series.map((d) => (overlay ? (overlay.byDate.get(d.date) ?? null) : null)),
     ];
-  }, [series]);
+  }, [series, overlay]);
 
   const options = useMemo<Omit<uPlot.Options, 'width' | 'height'>>(() => {
     const grid = { stroke: themeColor('--grid', '#eee'), width: 1 };
@@ -30,11 +57,33 @@ export function PmcChart({ series, height = 300 }: { series: PmcDay[]; height?: 
     return {
       cursor: { drag: { x: true, y: false }, points: { size: 6 } },
       legend: { show: false },
-      scales: { x: { time: true }, load: { range: (_u, _min, max) => [0, Math.max(max * 3, 10)] } },
+      scales: {
+        x: { time: true },
+        load: { range: (_u, _min, max) => [0, Math.max(max * 3, 10)] },
+        // Padded rather than tight to the data: a resting heart rate varying
+        // over four beats would otherwise fill the full height and read as a
+        // dramatic swing.
+        overlay: {
+          range: (_u, min, max) =>
+            Number.isFinite(min) && Number.isFinite(max)
+              ? [min - (max - min || 2) * 0.6, max + (max - min || 2) * 0.6]
+              : [0, 1],
+        },
+      },
       axes: [
         { stroke: axisText, grid, ticks: grid },
         { scale: 'y', stroke: axisText, grid, ticks: grid, size: 44 },
         { scale: 'load', show: false },
+        {
+          scale: 'overlay',
+          show: !!overlay,
+          side: 1,
+          stroke: overlay?.color ?? axisText,
+          // No grid: a second set of horizontal lines over the first is noise.
+          grid: { show: false },
+          ticks: { show: false },
+          size: 44,
+        },
       ],
       series: [
         { label: 'date' },
@@ -81,9 +130,19 @@ export function PmcChart({ series, height = 300 }: { series: PmcDay[]; height?: 
           dash: [4, 3],
           points: { show: false },
         },
+        {
+          label: overlay?.label ?? 'overlay',
+          scale: 'overlay',
+          stroke: overlay?.color ?? 'transparent',
+          width: 2,
+          points: { show: false },
+          // Breaks across days with no reading rather than interpolating a
+          // measurement that was never taken.
+          spanGaps: false,
+        },
       ],
     };
-  }, [themeVersion]);
+  }, [themeVersion, overlay]);
 
   if (series.length === 0) {
     return <Empty>No fitness model yet — run the recompute to build one.</Empty>;

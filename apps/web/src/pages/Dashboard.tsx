@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { PmcChart, PmcLegend, Empty } from '../components/PmcChart';
+import { PmcChart, PmcLegend, Empty, type PmcOverlay } from '../components/PmcChart';
 import { Badge, Bar, ErrorNote, Loading, Panel, SportDot, Stat } from '../components/ui';
 import * as f from '../lib/format';
 import { ZONE_COLOR, ZONE_LABEL } from '../lib/zones';
+import { rollingMedian } from '../lib/trends';
+import { themeColor } from '../components/Chart';
 
 const RANGES = [
   { label: '3m', days: 90 },
@@ -14,6 +16,12 @@ const RANGES = [
   { label: 'All', days: 0 },
 ];
 
+
+/** Wellness series that can be laid over the fitness model. */
+const OVERLAYS = {
+  restingHr: { label: 'resting HR', unit: 'bpm', color: '--bad' },
+  hrvRmssdMs: { label: 'HRV', unit: 'ms', color: '--run' },
+} as const;
 
 export function Dashboard({ athleteId }: { athleteId: string }) {
   const [range, setRange] = useState(RANGES[2]!);
@@ -34,6 +42,41 @@ export function Dashboard({ athleteId }: { athleteId: string }) {
     queryFn: () => api.pmc(athleteId, from, range.days ? to : undefined),
     enabled: !!summary.data,
   });
+
+  const [overlayKey, setOverlayKey] = useState<'none' | 'restingHr' | 'hrvRmssdMs'>('none');
+  // Only fetched once an overlay is asked for: most dashboard visits never turn
+  // one on, and this would otherwise be a round trip for a hidden series.
+  const wellness = useQuery({
+    queryKey: ['wellness', athleteId],
+    queryFn: () => api.wellness(athleteId, { limit: 800 }),
+    enabled: overlayKey !== 'none',
+  });
+
+  const overlay = useMemo<PmcOverlay | undefined>(() => {
+    if (overlayKey === 'none' || !wellness.data || !pmc.data) return undefined;
+    const spec = OVERLAYS[overlayKey];
+
+    const reading = new Map<string, number | null>();
+    for (const e of wellness.data.entries) reading.set(e.date, e[overlayKey] ?? null);
+
+    // Evaluated on every day of the model, not only on days with a reading.
+    // Mapping reading-days alone put a null between them whenever a morning was
+    // missed, and the line came out as dashes. The median is perfectly well
+    // defined on a day with no reading — it is the middle of the fortnight
+    // around it — and comes back null only across a real layoff, which is
+    // exactly where the line should break.
+    const days = pmc.data.series.map((d) => ({
+      x: Date.parse(`${d.date}T00:00:00Z`),
+      y: reading.get(d.date) ?? null,
+    }));
+    // Smoothed, not raw: one bad night against a 42-day fitness curve is noise,
+    // and the comparison worth seeing is trend against trend.
+    const smoothed = rollingMedian(days, { halfWindowDays: 7, minPoints: 3 });
+
+    const byDate = new Map<string, number | null>();
+    pmc.data.series.forEach((d, i) => byDate.set(d.date, smoothed[i] ?? null));
+    return { label: spec.label, unit: spec.unit, byDate, color: themeColor(spec.color, '#7c3aed') };
+  }, [overlayKey, wellness.data, pmc.data]);
   const zones = useQuery({
     queryKey: ['zones', athleteId, range.days, to],
     queryFn: () => api.zones(athleteId, from, range.days ? to : undefined),
@@ -102,6 +145,27 @@ export function Dashboard({ athleteId }: { athleteId: string }) {
         title="Fitness, fatigue and form"
         subtitle={<PmcLegend />}
         right={
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['none', 'restingHr', 'hrvRmssdMs'] as const).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setOverlayKey(k)}
+                  style={{
+                    fontSize: 12,
+                    padding: '3px 9px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    border: `1px solid ${k === overlayKey ? 'var(--accent)' : 'var(--border)'}`,
+                    background:
+                      k === overlayKey ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
+                    color: k === overlayKey ? 'var(--accent)' : 'var(--muted)',
+                  }}
+                >
+                  {k === 'none' ? 'no overlay' : OVERLAYS[k].label}
+                </button>
+              ))}
+            </div>
           <div style={{ display: 'flex', gap: 4 }}>
             {RANGES.map((r) => (
               <button
@@ -121,12 +185,13 @@ export function Dashboard({ athleteId }: { athleteId: string }) {
               </button>
             ))}
           </div>
+          </div>
         }
       >
         {pmc.isLoading ? (
           <Loading what="fitness model" />
         ) : (
-          <PmcChart series={pmc.data?.series ?? []} height={300} />
+          <PmcChart series={pmc.data?.series ?? []} height={300} overlay={overlay} />
         )}
       </Panel>
 
