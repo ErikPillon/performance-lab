@@ -418,13 +418,48 @@ wanted later it should arrive with a named source, not a formula from memory.
 
 **Effort** small.
 
-### ☐ 12. Season planning: races, blocks, planned vs actual
+### ◔ 12. Season planning: races, blocks, planned vs actual
 
 **Why.** This is TrainingPeaks' actual moat, and the thing a coach relationship
 is built around.
 
-**What.** A/B/C races, periodisation blocks, coach-assigned workouts, compliance
-scoring against what was executed.
+**Done — races, blocks, and compliance.** `/season` holds A/B/C races and
+periodisation blocks, drawn on one time axis so a season reads as a shape rather
+than a list — the question it answers is "is there a gap in March", which a
+table of dates cannot.
+
+A block with a name and dates is a label. A block with a **weekly load target**
+is a plan, and the week-by-week comparison against actual load is what makes the
+page worth opening twice.
+
+Three judgements worth recording:
+
+- **Only whole, finished weeks are scored.** A block starting on a Wednesday
+  opens with a five-day week; scoring it against a seven-day target reads as a
+  40% failure rather than as arithmetic. Partial and future weeks are shown and
+  explicitly not counted.
+- **A block that has not started shows a plan, not a shortfall.** Listing an
+  upcoming block's weeks as 0% made a season that had not begun look like one
+  already lost.
+- **"Next race" means the next A race.** The whole point of priorities is that a
+  C race is a training day; counting down to one buries the race the season is
+  built around. It falls back to the next race of any priority when no A race
+  remains.
+
+Blocks may overlap deliberately — a recovery week inside a build block is a real
+thing to want, and a constraint forbidding it would make the common case awkward
+to express.
+
+**Still open:**
+
+- ☐ **Coach-assigned workouts and per-session compliance.** This slice compares
+  weekly load, not individual sessions. Prescribing a workout is a different
+  data model — a planned session with a target that an executed activity is
+  matched against.
+- ☐ **Coach write access.** Reads sit under the `training` scope so a coach sees
+  the plan, but writes are the athlete's alone. A coach composing an athlete's
+  season is the point of the relationship; it is also a larger permission
+  question than this slice answers, and the safe default is the reversible one.
 
 **Effort** large. **Depends on** #7.
 

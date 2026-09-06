@@ -219,6 +219,77 @@ export const activityLoad = pgTable('activity_load', {
   index('activity_load_method_idx').on(t.loadMethod),
 ]);
 
+/** Race priority. A is what the season is built around; C is a training day. */
+export const racePriorityEnum = pgEnum('race_priority', ['A', 'B', 'C']);
+
+/**
+ * Periodisation phases, in the order they normally run.
+ *
+ * `other` exists for the same reason `sport` has one: a real season contains
+ * blocks that do not fit a textbook, and forcing them into the nearest label
+ * loses more than an extra enum value costs.
+ */
+export const blockFocusEnum = pgEnum('block_focus', [
+  'base', 'build', 'peak', 'taper', 'race', 'recovery', 'offseason', 'other',
+]);
+
+/**
+ * Races the season is built around.
+ *
+ * Stored as a plain date rather than a timestamp: a race is a day in the
+ * athlete's own calendar, and a start time in UTC would put an 07:00 start in
+ * Auckland on the previous day.
+ */
+export const race = pgTable('race', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  date: date('date').notNull(),
+  name: text('name').notNull(),
+  sport: sportEnum('sport').notNull().default('running'),
+  priority: racePriorityEnum('priority').notNull().default('B'),
+  distanceM: doublePrecision('distance_m'),
+  /** Target finish time in seconds. Nullable: not every race has a goal time. */
+  goalTimeS: doublePrecision('goal_time_s'),
+  /** Filled in afterwards, so a season review can compare goal against result. */
+  resultTimeS: doublePrecision('result_time_s'),
+  /** Links the plan to what was actually executed, once the file is imported. */
+  activityId: uuid('activity_id').references(() => activity.id, { onDelete: 'set null' }),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('race_athlete_date_idx').on(t.athleteId, t.date),
+]);
+
+/**
+ * Periodisation blocks: a named stretch of the calendar with an intent.
+ *
+ * Ranges are half-open in spirit but stored inclusive, because an athlete
+ * writing "base until 31 March" means through the 31st. Overlap is permitted
+ * deliberately — a recovery week inside a build block is a real thing to want,
+ * and a constraint forbidding it would make the common case awkward to express.
+ */
+export const trainingBlock = pgTable('training_block', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  focus: blockFocusEnum('focus').notNull().default('base'),
+  startDate: date('start_date').notNull(),
+  /** Inclusive. */
+  endDate: date('end_date').notNull(),
+  /**
+   * Planned weekly load on the same TSS-like scale as `athlete_daily.load`.
+   * This is what "planned versus actual" compares against, so it is the one
+   * number that makes a block more than a label.
+   */
+  targetWeeklyLoad: doublePrecision('target_weekly_load'),
+  /** The race this block is building toward, if any. */
+  raceId: uuid('race_id').references(() => race.id, { onDelete: 'set null' }),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('training_block_athlete_start_idx').on(t.athleteId, t.startDate),
+]);
+
 /**
  * Morning wellness readings: one row per athlete per day.
  *
