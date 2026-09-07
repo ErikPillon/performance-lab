@@ -94,6 +94,11 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3100}
       AUTH_ALLOW_SIGNUP: ${AUTH_ALLOW_SIGNUP:-true}
+      # Encrypts third-party OAuth tokens at rest. Empty means the Strava
+      # connector refuses to store anything rather than storing it clear.
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}
+      STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET:-}
     ports: ["8003:8003"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:8003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -123,6 +128,11 @@ services:
       S3_FORCE_PATH_STYLE: "true"
       ANALYTICS_URL: http://analytics:8001
       INGEST_PORT: "8002"
+      # The sync refreshes tokens as it runs, so the worker needs the
+      # same credentials the API does.
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}
+      STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET:-}
     ports: ["8002:8002"]
     depends_on:
       postgres: { condition: service_healthy }

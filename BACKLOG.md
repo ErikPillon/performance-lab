@@ -555,7 +555,7 @@ median of 48 untouched.
 
 ## Tier 4 — More data in
 
-### ☐ 14. Strava connector
+### ◔ 14. Strava connector
 
 **What.** Webhook-first with polling reconciliation, Cloudflare Tunnel for
 public HTTPS ingress, encrypted token storage with proactive refresh, a
@@ -567,6 +567,57 @@ Strava as a convenience mirror for the athlete's own view; athlete-uploaded FIT
 stays the canonical path.
 
 **Effort** medium-large. **Depends on** #9 for the public callback.
+
+**Done — everything that does not need credentials.** OAuth with a signed,
+self-describing `state` (an HMAC over athlete and expiry, so the callback needs
+no server-side session and nobody can point their authorisation at another
+athlete's account); tokens encrypted at rest with AES-256-GCM under their own
+key; proactive refresh ahead of expiry rather than on a 401 mid-sync; a
+resumable cursor that advances per activity, not per page; rate-limit handling
+that stops and records where to resume rather than hammering the quota.
+
+The converter is the part worth reading. `parse_strava` produces exactly the
+`(summary, frame)` pair `parse_fit` does, so load, curves, zones and the fitness
+model never learn a second source exists. Strava's stream names are mapped onto
+the canonical columns, `latlng` pairs are split, ragged streams are cut to the
+shortest so a row still means one instant, and Strava's *estimated* power — which
+it invents from speed, weight and gradient for rides with no meter — is flagged
+rather than fed to the load model as though it were measured.
+
+**Why Garmin is not being built, and why that costs nothing.** Garmin's Connect
+Developer Program is business-use with manual approval; the unofficial route
+means storing an athlete's Garmin password. Garmin Connect syncs to Strava
+natively, so this connector brings Garmin activities in without either problem.
+
+**The mirror property is tested, not assumed.** Strava cannot return the
+original file, so a session can arrive twice. The dedupe key collapses them, and
+`setWhere` keeps whichever recording is richer — which is almost always the FIT,
+since Strava's streams are derived and smoothed. Without that, every synced
+session would be counted twice and the fitness model would be wrong by roughly a
+factor of two.
+
+The raw Strava payload is stored content-addressed in object storage and indexed
+in `raw_file`, exactly as an uploaded FIT is. That keeps the property the whole
+system rests on — everything downstream is derived and rebuildable from bytes
+actually received — and lets a later improvement to the converter be replayed
+without asking Strava again.
+
+**Still open, and it needs the athlete:**
+
+- ☐ **Register a Strava application** at https://www.strava.com/settings/api and
+  set `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET`. Without them the connector
+  reports itself unconfigured and the UI hides it rather than half-working.
+- ☐ **`TOKEN_ENCRYPTION_KEY`**, 32 random bytes base64. Refuses to start without
+  one rather than storing tokens in the clear.
+- ☐ **A public callback**, which is #9. Strava must be able to reach
+  `AUTH_BASE_URL/api/connections/strava/callback`.
+- ☐ **Untested against the live API.** Every part that can be tested without
+  credentials is; nothing has spoken to Strava.
+- ☐ **Webhooks.** The original plan was webhook-first with polling as
+  reconciliation; what exists is the polling half. That is the right order —
+  polling is what makes the system correct after an outage, a missed delivery
+  or a replay, and a webhook only makes it faster. It also needs the same
+  public endpoint the callback does, so it is blocked on the same thing.
 
 ### ☐ 15. Garmin and Apple Watch
 

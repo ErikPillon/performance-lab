@@ -12,6 +12,7 @@ export interface IngestResult {
 
 export { rawKey, sha256 } from './keys.js';
 export { isConnected, putRaw } from './storage.js';
+export * from './strava.js';
 
 /**
  * Accept a file into the pipeline.

@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from .curves import DURATIONS, critical_speed
 from .downsample import bucket_min_max
 from .predict import predict, predict_standard
+from .strava import parse_strava
 from .vdot import from_curve as vdot_from_curve
 from .fit import PARSER_VERSION, dedupe_key, parse_fit
 from .load import CALC_VERSION, Thresholds, compute_load
@@ -116,6 +117,45 @@ def parse(req: ParseRequest) -> ParseResponse:
 
     return ParseResponse(
         summary=summary,
+        dedupe_key=dedupe_key(summary),
+        streams_key=streams_key,
+        streams_bytes=streams_bytes,
+    )
+
+
+class StravaParseRequest(BaseModel):
+    activity: dict[str, Any] = Field(description="Strava's detailed activity object")
+    streams: dict[str, Any] | None = Field(default=None, description="Strava's stream set")
+    activity_id: str = Field(description="UUID assigned by the worker; names the Parquet object")
+
+
+@app.post("/parse/strava", response_model=ParseResponse)
+def parse_strava_activity(req: StravaParseRequest) -> ParseResponse:
+    """Convert a Strava activity into the same pair `/parse` returns.
+
+    The same response shape on purpose: everything after this point — load,
+    curves, zones, the fitness model — consumes `(summary, frame)` and should
+    not learn that a second source exists.
+    """
+    try:
+        summary, df = parse_strava(req.activity, req.streams)
+    except ValueError as exc:
+        # Structurally unusable rather than transiently broken; retrying will
+        # not change the outcome, so the worker marks it skipped.
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        log.exception("strava parse failed for activity %s", req.activity.get("id"))
+        raise HTTPException(500, f"strava parse failed: {exc}") from exc
+
+    streams_key, streams_bytes = None, 0
+    if df.height > 0:
+        streams_key = f"streams/{req.activity_id}.parquet"
+        streams_bytes = put_parquet(streams_key, df)
+
+    return ParseResponse(
+        summary=summary,
+        # The same key a FIT of this session would produce, which is what lets
+        # the two collapse onto one activity rather than double-counting.
         dedupe_key=dedupe_key(summary),
         streams_key=streams_key,
         streams_bytes=streams_bytes,

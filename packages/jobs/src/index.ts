@@ -21,6 +21,7 @@ export const PARSE_QUEUE = 'parse';
 export const LOAD_QUEUE = 'load';
 export const PMC_QUEUE = 'pmc';
 export const RECOMPUTE_QUEUE = 'recompute';
+export const STRAVA_SYNC_QUEUE = 'strava-sync';
 
 export interface ParseJob {
   rawFileId: string;
@@ -35,6 +36,10 @@ export interface LoadJob {
 }
 
 export interface PmcJob {
+  athleteId: string;
+}
+
+export interface StravaSyncJob {
   athleteId: string;
 }
 
@@ -88,6 +93,18 @@ export const loadQueue = () => queue<LoadJob>(LOAD_QUEUE, standard);
 
 export const pmcQueue = () =>
   queue<PmcJob>(PMC_QUEUE, { ...standard, removeOnComplete: { count: 50 } });
+
+/**
+ * One sync per athlete at a time. The job id is the athlete, so a second
+ * request while one is running collapses onto it rather than sending two
+ * walkers through the same paginated history.
+ */
+export const stravaSyncQueue = () =>
+  queue<StravaSyncJob>(STRAVA_SYNC_QUEUE, {
+    attempts: 1,
+    removeOnComplete: { count: 20 },
+    removeOnFail: { age: 7 * 24 * 3_600 },
+  });
 
 export const recomputeQueue = () =>
   queue<RecomputeJob>(RECOMPUTE_QUEUE, {

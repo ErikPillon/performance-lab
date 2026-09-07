@@ -57,6 +57,13 @@
       "when": 1788735819286,
       "tag": "0007_lean_starbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788802293330,
+      "tag": "0008_sad_joystick",
+      "breakpoints": true
     }
   ]
 }

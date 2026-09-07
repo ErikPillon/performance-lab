@@ -12,6 +12,18 @@ export const env = {
   /** Matches the worker's cap, so the two write paths agree on a limit. */
   maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES ?? 25 * 1024 * 1024),
   /**
+   * Third-party connections.
+   *
+   * All optional: without a client id and secret the Strava connector reports
+   * itself unconfigured and the UI hides it, rather than offering a button
+   * that leads to an error page.
+   */
+  strava: {
+    clientId: process.env.STRAVA_CLIENT_ID ?? '',
+    clientSecret: process.env.STRAVA_CLIENT_SECRET ?? '',
+    configured: !!(process.env.STRAVA_CLIENT_ID && process.env.STRAVA_CLIENT_SECRET),
+  },
+  /**
    * Credentialed requests cannot use a wildcard origin, so once cookies are in
    * play this must name the real origin. Defaults to the dev app.
    */

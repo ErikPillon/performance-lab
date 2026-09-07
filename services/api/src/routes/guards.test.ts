@@ -18,8 +18,16 @@ import { join } from 'node:path';
 
 const GUARDS = ['requireAthleteAccess', 'requireOwner', 'requireActivityAccess', 'requireActor'];
 
-/** Reachable without a session, deliberately. */
-const PUBLIC_ROUTES = new Set(['/me', '/auth/*']);
+/**
+ * Reachable without a session, deliberately.
+ *
+ * The Strava callback is a top-level redirect from strava.com, so it cannot
+ * require one. It is not unauthorised: it is authorised by a signed `state`
+ * value instead, and the test below asserts that rather than taking the
+ * exemption on trust. Adding a route here without an equivalent proof is how
+ * this list stops meaning anything.
+ */
+const PUBLIC_ROUTES = new Set(['/me', '/auth/*', '/connections/strava/callback']);
 
 const ROUTES_DIR = new URL('.', import.meta.url).pathname;
 
@@ -67,4 +75,26 @@ test('every guard name the audit looks for still exists', async () => {
   for (const guard of GUARDS) {
     assert.equal(typeof (access as Record<string, unknown>)[guard], 'function', `${guard} is missing`);
   }
+});
+
+test('the Strava callback verifies its signed state', () => {
+  // It is exempt from the session guard because it is a redirect from
+  // strava.com. That exemption is only safe because the signed state carries
+  // the athlete and is verified here — without this, anyone could point their
+  // own Strava authorisation at someone else's account.
+  const text = readFileSync(join(ROUTES_DIR, 'connections.ts'), 'utf8');
+  const start = text.indexOf("'/connections/strava/callback'");
+  assert.ok(start > 0, 'callback route not found');
+  const body = text.slice(start, start + 2_000);
+
+  assert.ok(body.includes('verifyState'), 'callback must verify the signed state');
+  // And must use what it verified, rather than trusting a parameter.
+  assert.ok(
+    /athleteId\s*=\s*verifyState/.test(body),
+    'the athlete must come from the verified state, not from the request',
+  );
+  assert.ok(
+    /if\s*\(!athleteId\)/.test(body),
+    'a state that fails verification must stop the request',
+  );
 });
