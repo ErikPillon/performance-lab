@@ -51,6 +51,29 @@ export async function parseBlob(blobKey: string, activityId: string): Promise<Pa
   return (await res.json()) as ParseResponse;
 }
 
+/** Convert a Strava activity into the same pair `/parse` returns. */
+export async function parseStravaActivity(
+  activity: Record<string, unknown>,
+  streams: Record<string, unknown> | null,
+  activityId: string,
+): Promise<ParseResponse> {
+  const res = await fetch(`${env.analyticsUrl}/parse/strava`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ activity, streams, activity_id: activityId }),
+    signal: AbortSignal.timeout(120_000),
+  });
+
+  if (res.status === 422) {
+    const body = (await res.json().catch(() => ({}))) as { detail?: string };
+    throw new UnparseableError(body.detail ?? 'unusable strava activity');
+  }
+  if (!res.ok) {
+    throw new Error(`analytics ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  return (await res.json()) as ParseResponse;
+}
+
 export interface ThresholdSet {
   max_hr: number | null;
   rest_hr: number | null;

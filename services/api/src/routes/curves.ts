@@ -41,7 +41,14 @@ export async function curveRoutes(app: FastifyInstance) {
         .where(and(eq(activityCurve.athleteId, req.params.id), eq(activityCurve.sport, sport as never)));
       const present = new Set(available.map((r) => r.metric));
       metric = (DEFAULT_METRIC[sport] ?? ['speed_mps']).find((m) => present.has(m));
-      if (!metric) return reply.send({ sport, metric: null, points: [], critical: null, available: [] });
+      // Every field the populated response carries, so a client never has to
+      // distinguish "no curve" from "a curve shaped differently".
+      if (!metric) {
+        return reply.send({
+          sport, metric: null, points: [], critical: null,
+          predictions: [], vdot: null, available: [],
+        });
+      }
     }
 
     const filters = [
@@ -72,6 +79,7 @@ export async function curveRoutes(app: FastifyInstance) {
     // one of the two models is built from that very fit, and the curve has
     // already been sent.
     let predictions: unknown[] = [];
+    let vdot: unknown = null;
     // Only meaningful for distance-covering channels. A prediction off a heart
     // rate curve would be a number with no units behind it.
     const predictable = metric === 'gap_mps' || metric === 'speed_mps';
@@ -86,9 +94,19 @@ export async function curveRoutes(app: FastifyInstance) {
           signal: AbortSignal.timeout(10_000),
         });
         if (res.ok) {
-          const body = (await res.json()) as { fit: unknown; predictions?: unknown[] };
+          const body = (await res.json()) as {
+            fit: unknown;
+            predictions?: unknown[];
+            vdot?: unknown;
+          };
           critical = body.fit;
-          if (predictable) predictions = body.predictions ?? [];
+          if (predictable) {
+            predictions = body.predictions ?? [];
+            // VDOT is a running number. Daniels' equations are fitted to
+            // running economy, so quoting one off a cycling or swimming curve
+            // would be a category error dressed as a measurement.
+            if (sport === 'running') vdot = body.vdot ?? null;
+          }
         }
       } catch {
         /* the curve is still worth returning without a fit */
@@ -106,6 +124,7 @@ export async function curveRoutes(app: FastifyInstance) {
       points,
       critical,
       predictions,
+      vdot,
       available: available.map((r) => r.metric),
     };
   });

@@ -11,3 +11,4 @@ export const db = drizzle(sql, { schema });
 export * from './schema.js';
 export * from './queries.js';
 export { schema };
+export * from './secrets.js';

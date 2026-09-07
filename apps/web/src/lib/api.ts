@@ -191,6 +191,8 @@ export interface CurveResponse {
   } | null;
   /** Empty for channels that do not measure distance, e.g. a heart-rate curve. */
   predictions: RacePrediction[];
+  /** Running only — Daniels' equations are fitted to running economy. */
+  vdot: { vdot: number; from_duration_s: number; equivalent_5k_s: number } | null;
   available: string[];
 }
 
@@ -360,6 +362,24 @@ export interface RacePrediction {
   confidence: 'high' | 'moderate' | 'low';
 }
 
+export interface ConnectionRow {
+  provider: 'strava';
+  status: 'active' | 'needs_reauth' | 'error' | 'disconnected';
+  syncedThrough: string | null;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  importedCount: number;
+  scope: string | null;
+  createdAt: string;
+}
+
+export interface ConnectionsResponse {
+  connections: ConnectionRow[];
+  /** Whether the server has credentials at all; without them the UI hides it. */
+  providers: { strava: { configured: boolean } };
+  canManage: boolean;
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -440,4 +460,13 @@ export const api = {
     send<{ deleted: number }>(`/athletes/${id}/blocks/${blockId}`, 'DELETE'),
   racePredictions: (id: string) =>
     get<{ predictions: Record<string, RacePrediction> }>(`/athletes/${id}/races/predictions`),
+  connections: (id: string) => get<ConnectionsResponse>(`/athletes/${id}/connections`),
+  connectStrava: (id: string) =>
+    send<{ url: string }>(`/athletes/${id}/connections/strava`, 'POST'),
+  disconnectStrava: (id: string) =>
+    send<{ disconnected: number }>(`/athletes/${id}/connections/strava`, 'DELETE'),
+  syncStrava: (id: string) =>
+    send<{ jobId: string; alreadyRunning: boolean }>(
+      `/athletes/${id}/connections/strava/sync`, 'POST',
+    ),
 };

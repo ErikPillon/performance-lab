@@ -45,6 +45,7 @@ Three of them decide whether this deployment is sound:
 | `POSTGRES_PASSWORD`, `S3_SECRET_KEY` | Long random strings, not the placeholders. Nothing else guards the database. |
 | `BETTER_AUTH_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` — rotating it logs everyone out. |
 | `SITE_ADDRESS` | Where the browser reaches the app, e.g. `https://192.168.40.101`. Must match `AUTH_BASE_URL` exactly, port included, or the session cookie is scoped to the wrong origin and login silently fails. |
+| `TOKEN_ENCRYPTION_KEY` | Only if you link Strava. 32 random bytes, base64 — same generator as the auth secret. Encrypts OAuth tokens at rest; without it the connector refuses to store anything rather than storing it in clear. Its own secret, so rotating the auth secret stays cheap. |
 
 Set `AUTH_ALLOW_SIGNUP=true` for the first run, create your account, then set it
 to `false` and redeploy. Otherwise anyone reaching the box can register.
@@ -99,6 +100,28 @@ ssh -L 9101:localhost:9101 -L 5433:localhost:5432 <server>
 | Back up now | `./scripts/backup.sh` |
 | **Rehearse a restore** | `./scripts/restore.sh --verify backups/<stamp>` |
 | Restore for real | `./scripts/restore.sh backups/<stamp>` |
+
+## Linking Strava
+
+Optional, and it needs a callback Strava can reach — so it only works once
+`SITE_ADDRESS` is a real hostname with a publicly trusted certificate, not a LAN
+IP behind NAT.
+
+1. Create an application at <https://www.strava.com/settings/api>.
+2. Set its **Authorization Callback Domain** to the host in `AUTH_BASE_URL` —
+   just the host, no scheme and no path.
+3. Put the client id and secret in `.env` as `STRAVA_CLIENT_ID` and
+   `STRAVA_CLIENT_SECRET`, set `TOKEN_ENCRYPTION_KEY`, and redeploy.
+4. Connect from the Import page.
+
+Leave the credentials empty and the connector reports itself unconfigured and
+stays hidden, rather than offering a button that leads to an error page.
+
+**Strava is a mirror, not a source of truth.** Its API cannot return the
+original FIT file — third-party applications get a summary and smoothed streams.
+Anything uploaded directly stays the better copy, and a session arriving both
+ways is merged rather than counted twice. Garmin Connect syncs to Strava
+natively, which is how Garmin activities get in without a Garmin integration.
 
 ## Backups
 

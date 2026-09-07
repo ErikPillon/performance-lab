@@ -219,6 +219,66 @@ export const activityLoad = pgTable('activity_load', {
   index('activity_load_method_idx').on(t.loadMethod),
 ]);
 
+/** Third-party services an athlete has linked. */
+export const connectionProviderEnum = pgEnum('connection_provider', ['strava']);
+
+/**
+ * Status of a linked account.
+ *
+ * `needs_reauth` is distinct from `error` on purpose: a revoked or expired
+ * refresh token needs the athlete to click something, while a 500 from the
+ * provider needs nothing but patience. Collapsing them would either nag about
+ * outages or stay silent about a connection that will never recover.
+ */
+export const connectionStatusEnum = pgEnum('connection_status', [
+  'active', 'needs_reauth', 'error', 'disconnected',
+]);
+
+/**
+ * An OAuth link to a third-party service.
+ *
+ * Tokens are encrypted at rest with AES-256-GCM (see `secrets.ts`). A refresh
+ * token is a long-lived credential to somebody's entire training history, and
+ * backups, dumps and replicas all end up holding whatever is in this column.
+ *
+ * Strava is deliberately a *mirror*, not the source of truth: its API cannot
+ * return the original FIT file, only a summary and derived streams, so
+ * athlete-uploaded FIT stays canonical. The dedupe key already collapses a
+ * session that arrives from both.
+ */
+export const athleteConnection = pgTable('athlete_connection', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  provider: connectionProviderEnum('provider').notNull(),
+
+  /** The provider's own id for this athlete, for webhook routing. */
+  providerAthleteId: text('provider_athlete_id'),
+  /** AES-256-GCM ciphertext, never the raw token. */
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  scope: text('scope'),
+
+  status: connectionStatusEnum('status').notNull().default('active'),
+  /**
+   * How far the backfill has walked, as the start time of the newest activity
+   * already imported. Resumable by design: a sync interrupted halfway leaves
+   * this where it was and the next run picks up from there rather than
+   * restarting a multi-year import.
+   */
+  syncedThrough: timestamp('synced_through', { withTimezone: true }),
+  lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  /** Counts what the sync has actually produced, for the UI to show. */
+  importedCount: integer('imported_count').notNull().default(0),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // One link per provider per athlete: reconnecting updates the row rather
+  // than leaving a trail of dead tokens behind.
+  uniqueIndex('athlete_connection_athlete_provider_uq').on(t.athleteId, t.provider),
+]);
+
 /** Race priority. A is what the season is built around; C is a training day. */
 export const racePriorityEnum = pgEnum('race_priority', ['A', 'B', 'C']);
 

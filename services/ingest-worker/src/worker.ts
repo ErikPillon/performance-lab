@@ -13,12 +13,15 @@ import {
   RECOMPUTE_QUEUE,
   connection,
   loadQueue,
+  STRAVA_SYNC_QUEUE,
+  type StravaSyncJob,
   requestPmcRebuild,
   type LoadJob,
   type ParseJob,
   type PmcJob,
   type RecomputeJob,
 } from '@lab/jobs';
+import { syncStrava } from './stravaSync.js';
 
 /**
  * Decode one raw file into an activity row plus a Parquet stream object.
@@ -185,6 +188,20 @@ async function handleRecompute(job: {
   return `${result.activities} activities, ${result.days} days, ${result.failed} failed`;
 }
 
+
+/**
+ * Import from a linked Strava account.
+ *
+ * Deliberately does not throw on a rate limit. Strava's quota resets on the
+ * quarter hour, and BullMQ's exponential backoff would either retry far too
+ * soon or far too late; the sync records where it stopped and the next run
+ * resumes from the cursor.
+ */
+async function handleStravaSync(job: { data: StravaSyncJob }): Promise<string> {
+  const result = await syncStrava(job.data.athleteId);
+  return `${result.status}: ${result.imported} imported, ${result.skipped} already had, ${result.failed} failed`;
+}
+
 export function startWorker() {
   // One connection, shared by all four workers.
   const conn = connection();
@@ -197,6 +214,15 @@ export function startWorker() {
   const pmc = new Worker<PmcJob>(PMC_QUEUE, handlePmc, { connection: conn, concurrency: 1 });
   // Concurrency 1 for the same reason as pmc, and because a recompute walks
   // every activity: two at once would double the load on the analytics service.
+  // Concurrency 1: Strava's rate limit is per application, not per athlete,
+  // so parallel syncs would race each other into it.
+  const stravaSync = new Worker<StravaSyncJob>(STRAVA_SYNC_QUEUE, handleStravaSync, {
+    connection: conn,
+    concurrency: 1,
+    // A first import walks years of history one page at a time.
+    lockDuration: 30 * 60_000,
+  });
+
   const recompute = new Worker<RecomputeJob>(RECOMPUTE_QUEUE, handleRecompute, {
     connection: conn,
     concurrency: 1,
@@ -210,6 +236,7 @@ export function startWorker() {
     ['load', load],
     ['pmc', pmc],
     ['recompute', recompute],
+    ['strava-sync', stravaSync],
   ] as const) {
     worker.on('failed', (job, err) =>
       console.error(`[${name}] job ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message),

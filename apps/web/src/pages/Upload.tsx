@@ -1,8 +1,8 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { NotSignedInError, uploadFile, type UploadOutcome } from '../lib/api';
-import { Badge, Panel } from '../components/ui';
+import { api, NotSignedInError, uploadFile, type UploadOutcome } from '../lib/api';
+import { Badge, ErrorNote, Panel } from '../components/ui';
 import * as f from '../lib/format';
 
 /**
@@ -111,6 +111,8 @@ export function Upload({ athleteId }: { athleteId: string }) {
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
+      <Connections athleteId={athleteId} />
+
       <Panel
         title="Import activities"
         subtitle="Drop .fit files here, or the .fit.gz files a Garmin or Strava export contains"
@@ -274,4 +276,138 @@ function Row({ item }: { item: Item }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Linked services.
+ *
+ * Strava is a mirror, not a source of truth — its API cannot return the
+ * original file, only a summary and derived streams. A session that also
+ * arrives as an uploaded FIT collapses onto one activity, and the richer
+ * recording wins, which is almost always the FIT.
+ *
+ * It is also the answer to Garmin. Garmin's developer programme is business-use
+ * with manual approval, and the unofficial route means handing over a Garmin
+ * password. Garmin Connect syncs to Strava natively, so linking Strava brings
+ * Garmin activities in without either problem.
+ */
+function Connections({ athleteId }: { athleteId: string }) {
+  const queryClient = useQueryClient();
+  const connections = useQuery({
+    queryKey: ['connections', athleteId],
+    queryFn: () => api.connections(athleteId),
+  });
+
+  const connect = useMutation({
+    mutationFn: () => api.connectStrava(athleteId),
+    // A full-page navigation, not a fetch: this is an OAuth handshake and the
+    // athlete has to see Strava's own consent screen.
+    onSuccess: (result) => { window.location.href = result.url; },
+  });
+  const disconnect = useMutation({
+    mutationFn: () => api.disconnectStrava(athleteId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connections', athleteId] }),
+  });
+  const sync = useMutation({
+    mutationFn: () => api.syncStrava(athleteId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connections', athleteId] }),
+  });
+
+  if (!connections.data) return null;
+  const { providers, connections: rows, canManage } = connections.data;
+
+  // Without server credentials there is nothing to offer, and a button leading
+  // to an error page is worse than no button.
+  if (!providers.strava.configured) return null;
+
+  const strava = rows.find((r) => r.provider === 'strava');
+  const linked = strava && strava.status !== 'disconnected';
+
+  return (
+    <Panel
+      title="Connected services"
+      subtitle="Strava mirrors what you upload elsewhere — including anything Garmin Connect syncs to it"
+      right={
+        canManage && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            {linked && (
+              <button
+                onClick={() => sync.mutate()}
+                disabled={sync.isPending || strava.status === 'needs_reauth'}
+                style={buttonStyle(true)}
+              >
+                {sync.isPending ? 'Starting…' : 'Sync now'}
+              </button>
+            )}
+            <button
+              onClick={() => (linked ? disconnect.mutate() : connect.mutate())}
+              disabled={connect.isPending || disconnect.isPending}
+              style={buttonStyle(!linked)}
+            >
+              {linked ? 'Disconnect' : 'Connect Strava'}
+            </button>
+          </div>
+        )
+      }
+    >
+      {!linked ? (
+        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
+          Not connected. Linking Strava imports your activities automatically — but note that
+          Strava's API cannot hand over the original FIT file, only a summary and smoothed
+          streams. Anything you upload here directly stays the better copy, and a session that
+          arrives both ways is merged rather than counted twice.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Badge
+              tone={
+                strava.status === 'active' ? 'good'
+                  : strava.status === 'needs_reauth' ? 'warn' : 'bad'
+              }
+            >
+              {strava.status === 'needs_reauth' ? 'reconnect needed' : strava.status}
+            </Badge>
+            <span style={{ color: 'var(--muted)' }}>
+              {strava.importedCount} imported
+              {strava.syncedThrough ? ` · synced through ${strava.syncedThrough.slice(0, 10)}` : ''}
+              {strava.lastSyncAt ? ` · last run ${strava.lastSyncAt.slice(0, 10)}` : ''}
+            </span>
+          </div>
+          {sync.data && (
+            <div style={{ color: 'var(--muted)' }}>
+              {sync.data.alreadyRunning
+                ? 'A sync is already running — activities will appear as it works through them.'
+                : 'Sync queued. Activities appear as they are imported.'}
+            </div>
+          )}
+          {strava.status === 'needs_reauth' && (
+            <div style={{ color: 'var(--warn)' }}>
+              Strava revoked this access. Reconnect to resume — nothing already imported is lost.
+            </div>
+          )}
+          {strava.lastError && strava.status !== 'active' && (
+            <div style={{ fontSize: 12, color: 'var(--faint)' }}>{strava.lastError}</div>
+          )}
+        </div>
+      )}
+      {(connect.isError || disconnect.isError || sync.isError) && (
+        <div style={{ marginTop: 10 }}>
+          <ErrorNote error={connect.error ?? disconnect.error ?? sync.error} />
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function buttonStyle(primary: boolean): React.CSSProperties {
+  return {
+    fontSize: 12,
+    padding: '4px 11px',
+    borderRadius: 6,
+    cursor: 'pointer',
+    border: `1px solid ${primary ? 'var(--accent)' : 'var(--border)'}`,
+    background: 'transparent',
+    color: primary ? 'var(--accent)' : 'var(--muted)',
+  };
 }
