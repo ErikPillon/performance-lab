@@ -63,9 +63,9 @@ fi
 # --- migrate ------------------------------------------------------------
 # Before restarting anything: a migration that fails should leave the old
 # version serving, not a half-swapped stack. Runs in the new api image, which
-# carries packages/db and its migration files.
+# ships the bundled migrator and the migration SQL alongside it.
 log "applying migrations"
-if ! "${COMPOSE[@]}" run --rm --no-deps api npx tsx packages/db/src/migrate.ts; then
+if ! "${COMPOSE[@]}" run --rm --no-deps api node dist/migrate.js; then
   die "migration failed — nothing was restarted, the old version is still serving"
 fi
 

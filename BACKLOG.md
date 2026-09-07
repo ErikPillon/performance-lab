@@ -550,14 +550,31 @@ Small, but each one is a wrong number rather than a missing feature.
 - ☐ **The `duration_estimate` fallback assumes** no-HR sessions resemble
   measured ones for that sport. 62% of cycling volume is estimated this way. If
   the strap comes off mainly on hard rides, those are systematically low.
-- ☐ **The daily rollup buckets by UTC date, the calendar by local date.** They
-  agree on every activity in this dataset — all sessions are daytime in
-  CET/CEST — but a session starting just after local midnight, or any training
-  done after long-haul travel, would land on different days in the two views.
-- ☐ **`tsx` runs the TypeScript services in production images.** It works and
-  is pinned, but compiling to JavaScript would drop a build tool and its native
-  esbuild binary from the runtime image — the same binary that broke the image
-  build until the Dockerfiles moved to `npm ci`.
+- ☑ **The daily rollup bucketed by UTC date, the calendar by local date.** Both
+  now use the athlete's local day. **No recompute was needed:** on this corpus
+  the two groupings produce byte-identical output — 361 days, 0 differing — so
+  the stored series was already correct and the fix is purely forward-looking.
+  Verified against sessions that straddle midnight in both directions: 23:30 UTC
+  at +120 moves forward a day, 00:30 UTC at −300 moves back one, and a null
+  offset still falls back to UTC.
+- ☑ **`tsx` ran the TypeScript services in production images.** Both service
+  images now ship a bundle and nothing else — `/srv` contains `dist` (plus the
+  migration SQL on the API) and **no `node_modules` at all**. No tsx, no esbuild
+  binary, no build tooling of any kind at runtime.
+
+  Dependencies are bundled in rather than left external. That was not the first
+  design: leaving them external kept dragging tsx back into the image through
+  `drizzle-kit`, a dev dependency of `@lab/db` that npm's workspace resolution
+  installs regardless of `--omit=dev`. Bundling ends the argument.
+
+  It needs a `createRequire` banner — several dependencies are CommonJS and call
+  `require()` at runtime, and postgres.js reaching for `node:events` killed the
+  process at boot without it.
+
+  The deploy path was the trap worth catching: `deploy.sh` ran migrations inside
+  the API image via `tsx`, so the API image also bundles the migrator. Verified
+  by running `node dist/migrate.js` inside the built image against the real
+  database.
 - ☐ **The corpus now contains one ride exported twice**, collapsed correctly by
   the dedupe key. Worth knowing that duplicates exist rather than assuming one
   file is one session — a test encoded that assumption and had to be corrected
