@@ -189,6 +189,8 @@ export interface CurveResponse {
     r_squared: number;
     points: number;
   } | null;
+  /** Empty for channels that do not measure distance, e.g. a heart-rate curve. */
+  predictions: RacePrediction[];
   available: string[];
 }
 
@@ -320,6 +322,44 @@ export interface RestingHrSuggestion {
   last: string | null;
 }
 
+export interface RaceRow {
+  id: string;
+  date: string;
+  name: string;
+  sport: string;
+  priority: 'A' | 'B' | 'C';
+  distanceM: number | null;
+  goalTimeS: number | null;
+  resultTimeS: number | null;
+  activityId: string | null;
+  note: string | null;
+}
+
+export interface BlockRow {
+  id: string;
+  name: string;
+  focus: string;
+  startDate: string;
+  endDate: string;
+  targetWeeklyLoad: number | null;
+  raceId: string | null;
+  note: string | null;
+}
+
+export interface RacePrediction {
+  label?: string;
+  distance_m: number;
+  /** One entry per model that had something defensible to say. */
+  estimates: Record<string, number>;
+  seconds: number;
+  low_s: number;
+  high_s: number;
+  reference: { duration_s: number; distance_m: number; speed_mps: number };
+  /** How far past the effort it is extrapolated from. Above ~4 it is refused. */
+  extrapolation_ratio: number;
+  confidence: 'high' | 'moderate' | 'low';
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -380,4 +420,24 @@ export const api = {
     send<{ deleted: number }>(`/athletes/${id}/wellness/${date}`, 'DELETE'),
   restingHrSuggestion: (id: string, days = 60) =>
     get<RestingHrSuggestion>(`/athletes/${id}/wellness/resting-hr`, { days }),
+  season: (id: string, params: { from?: string; to?: string } = {}) =>
+    get<{ races: RaceRow[]; blocks: BlockRow[] }>(`/athletes/${id}/season`, params),
+  saveRace: (id: string, body: Record<string, unknown>, raceId?: string) =>
+    send<{ race: RaceRow }>(
+      raceId ? `/athletes/${id}/races/${raceId}` : `/athletes/${id}/races`,
+      raceId ? 'PATCH' : 'POST',
+      body,
+    ),
+  deleteRace: (id: string, raceId: string) =>
+    send<{ deleted: number }>(`/athletes/${id}/races/${raceId}`, 'DELETE'),
+  saveBlock: (id: string, body: Record<string, unknown>, blockId?: string) =>
+    send<{ block: BlockRow; advisories: string[] }>(
+      blockId ? `/athletes/${id}/blocks/${blockId}` : `/athletes/${id}/blocks`,
+      blockId ? 'PATCH' : 'POST',
+      body,
+    ),
+  deleteBlock: (id: string, blockId: string) =>
+    send<{ deleted: number }>(`/athletes/${id}/blocks/${blockId}`, 'DELETE'),
+  racePredictions: (id: string) =>
+    get<{ predictions: Record<string, RacePrediction> }>(`/athletes/${id}/races/predictions`),
 };

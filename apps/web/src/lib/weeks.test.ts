@@ -148,3 +148,13 @@ test('file sizes render in the unit a human would use', () => {
   assert.equal(fmt.bytes(1024 * 1024), '1.0 MB');
   assert.equal(fmt.bytes(26 * 1024 * 1024), '26.0 MB');
 });
+
+test('a race time keeps its seconds, unlike a training duration', () => {
+  // f.duration rounds to whole minutes, which hides the precision a finish
+  // time is claiming.
+  assert.equal(fmt.raceTime(11186), '3:06:26');
+  assert.equal(fmt.raceTime(1193), '19:53');
+  assert.equal(fmt.raceTime(59), '0:59');
+  assert.equal(fmt.raceTime(null), '—');
+  assert.equal(fmt.duration(11186), '3h 06m', 'the training formatter is unchanged');
+});

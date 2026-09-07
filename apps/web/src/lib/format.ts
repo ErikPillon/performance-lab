@@ -118,3 +118,21 @@ export function bytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/**
+ * A race time, to the second.
+ *
+ * `duration` rounds to whole minutes, which is right for a training week and
+ * wrong for a finish time — a marathon prediction of "3h 06m" hides exactly the
+ * precision the number is claiming.
+ */
+export function raceTime(seconds: number | null | undefined): string {
+  if (seconds == null || seconds < 0) return '—';
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+}

@@ -12,6 +12,7 @@ import { SignIn } from './pages/SignIn';
 import { Sharing } from './pages/Sharing';
 import { Thresholds } from './pages/Thresholds';
 import { Trends } from './pages/Trends';
+import { Season } from './pages/Season';
 import { Upload } from './pages/Upload';
 import { Wellness } from './pages/Wellness';
 import { ErrorNote, Loading } from './components/ui';
@@ -108,6 +109,7 @@ export default function App() {
       {[
         { to: '/', label: 'Dashboard' },
         { to: '/calendar', label: 'Calendar' },
+        { to: '/season', label: 'Season' },
         { to: '/activities', label: 'Activities' },
         { to: '/curve', label: 'Curve' },
         { to: '/trends', label: 'Trends' },
@@ -146,6 +148,7 @@ export default function App() {
         <Route path="/activities" element={<Activities athleteId={athlete.id} />} />
         <Route path="/activities/:id" element={<ActivityDetail />} />
         <Route path="/calendar" element={<Calendar athleteId={athlete.id} />} />
+        <Route path="/season" element={<Season athleteId={athlete.id} />} />
         <Route path="/curve" element={<Curve athleteId={athlete.id} />} />
         <Route path="/trends" element={<Trends athleteId={athlete.id} />} />
         {isOwner && <Route path="/upload" element={<Upload athleteId={athlete.id} />} />}

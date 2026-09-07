@@ -14,7 +14,19 @@ import { EXCLUDED_METHOD } from './load.js';
 export async function rebuildPmc(athleteId: string): Promise<{ days: number; latest: unknown }> {
   const rows = await db
     .select({
-      date: sql<string>`(${activityLoad.startTime} AT TIME ZONE 'UTC')::date::text`,
+      // The athlete's local calendar day, not the UTC one.
+      //
+      // The dashboard's calendar has always bucketed by local date and this
+      // rollup by UTC, so the two views could disagree about which day a
+      // session belonged to. They agree on every activity in this corpus —
+      // all of it is daytime in CET/CEST — but a session starting just after
+      // local midnight, or anything trained after long-haul travel, would land
+      // on different days in the two places. Nothing in the stored series
+      // changes today; this stops it going wrong later.
+      date: sql<string>`(
+        (${activityLoad.startTime} AT TIME ZONE 'UTC')
+        + (coalesce(${activity.tzOffsetMin}, 0) || ' minutes')::interval
+      )::date::text`,
       load: sql<number>`coalesce(sum(${activityLoad.load}), 0)`,
       durationS: sql<number>`coalesce(sum(${activity.durationS}), 0)`,
       distanceM: sql<number>`coalesce(sum(${activity.distanceM}), 0)`,

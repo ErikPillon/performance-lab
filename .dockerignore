@@ -43,7 +43,11 @@ __pycache__
 caddy-root-ca.crt
 *.log
 
-# Docs and scripts are not inputs to any image.
+# Docs are not inputs to any image.
 README.md
 BACKLOG.md
+
+# Scripts are not either, with one exception: the service images bundle their
+# TypeScript at build time and that is the bundler.
 scripts
+!scripts/bundle.mjs

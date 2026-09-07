@@ -375,9 +375,33 @@ speed) with a confidence range.
 
 **Partly done.** The two-parameter model (`D = CS·t + D′`) is implemented and
 fitted over 2–20 minutes; the same algebra gives critical power from a power
-curve. On this data critical speed comes out at 4:35/km against an
-independently-estimated threshold pace of 4:27/km — two methods within 8 s/km,
-which is a reassuring cross-check. VO₂max and race prediction remain.
+curve. Critical speed now comes out at 4:09/km on the grown corpus.
+
+**Done — race prediction.** Two models reported side by side rather than blended
+into one number: Riegel's empirical fatigue law, and the critical-speed model
+above. Where they disagree is information — it means the athlete's curve does
+not look like the population Riegel was fitted to. The critical-speed model
+stays quiet past an hour, where it becomes badly optimistic, and Riegel refuses
+to extrapolate past a fourfold jump from the effort anchoring it.
+
+Predictions surface on `/curve` for standard distances, and on `/season` beside
+each planned race's goal time — which is the only place the duration curve and
+the season plan meet.
+
+**The bug real data caught, and the reason to keep it written down.** The first
+version anchored Riegel on the *longest* effort in the curve, reasoning that a
+long anchor extrapolates less far. But the long end of a mean-maximal curve is
+not a maximal effort — it is whatever the athlete's best long *easy* run
+happened to be. It predicted a 5k at 4:58/km for an athlete whose critical speed
+is 4:09/km, because it was extrapolating from a two-hour steady run. Riegel is
+now evaluated from every anchor over five minutes and the fastest result wins: a
+submaximal anchor always yields a slower prediction, so taking the minimum
+selects the effort that was actually raced. On the real curve that anchors on
+the one-hour effort and gives 5k 19:53, 10k 40:50, half 1:29:25, marathon
+3:06:26 — 3:58/km through 4:25/km against a 4:09/km critical speed, which is the
+right shape.
+
+**Still open:** VO₂max estimate with trend.
 
 ### ◔ 11. Zone distribution over time and polarisation index
 
@@ -418,13 +442,48 @@ wanted later it should arrive with a named source, not a formula from memory.
 
 **Effort** small.
 
-### ☐ 12. Season planning: races, blocks, planned vs actual
+### ◔ 12. Season planning: races, blocks, planned vs actual
 
 **Why.** This is TrainingPeaks' actual moat, and the thing a coach relationship
 is built around.
 
-**What.** A/B/C races, periodisation blocks, coach-assigned workouts, compliance
-scoring against what was executed.
+**Done — races, blocks, and compliance.** `/season` holds A/B/C races and
+periodisation blocks, drawn on one time axis so a season reads as a shape rather
+than a list — the question it answers is "is there a gap in March", which a
+table of dates cannot.
+
+A block with a name and dates is a label. A block with a **weekly load target**
+is a plan, and the week-by-week comparison against actual load is what makes the
+page worth opening twice.
+
+Three judgements worth recording:
+
+- **Only whole, finished weeks are scored.** A block starting on a Wednesday
+  opens with a five-day week; scoring it against a seven-day target reads as a
+  40% failure rather than as arithmetic. Partial and future weeks are shown and
+  explicitly not counted.
+- **A block that has not started shows a plan, not a shortfall.** Listing an
+  upcoming block's weeks as 0% made a season that had not begun look like one
+  already lost.
+- **"Next race" means the next A race.** The whole point of priorities is that a
+  C race is a training day; counting down to one buries the race the season is
+  built around. It falls back to the next race of any priority when no A race
+  remains.
+
+Blocks may overlap deliberately — a recovery week inside a build block is a real
+thing to want, and a constraint forbidding it would make the common case awkward
+to express.
+
+**Still open:**
+
+- ☐ **Coach-assigned workouts and per-session compliance.** This slice compares
+  weekly load, not individual sessions. Prescribing a workout is a different
+  data model — a planned session with a target that an executed activity is
+  matched against.
+- ☐ **Coach write access.** Reads sit under the `training` scope so a coach sees
+  the plan, but writes are the athlete's alone. A coach composing an athlete's
+  season is the point of the relationship; it is also a larger permission
+  question than this slice answers, and the safe default is the reversible one.
 
 **Effort** large. **Depends on** #7.
 
@@ -515,14 +574,31 @@ Small, but each one is a wrong number rather than a missing feature.
 - ☐ **The `duration_estimate` fallback assumes** no-HR sessions resemble
   measured ones for that sport. 62% of cycling volume is estimated this way. If
   the strap comes off mainly on hard rides, those are systematically low.
-- ☐ **The daily rollup buckets by UTC date, the calendar by local date.** They
-  agree on every activity in this dataset — all sessions are daytime in
-  CET/CEST — but a session starting just after local midnight, or any training
-  done after long-haul travel, would land on different days in the two views.
-- ☐ **`tsx` runs the TypeScript services in production images.** It works and
-  is pinned, but compiling to JavaScript would drop a build tool and its native
-  esbuild binary from the runtime image — the same binary that broke the image
-  build until the Dockerfiles moved to `npm ci`.
+- ☑ **The daily rollup bucketed by UTC date, the calendar by local date.** Both
+  now use the athlete's local day. **No recompute was needed:** on this corpus
+  the two groupings produce byte-identical output — 361 days, 0 differing — so
+  the stored series was already correct and the fix is purely forward-looking.
+  Verified against sessions that straddle midnight in both directions: 23:30 UTC
+  at +120 moves forward a day, 00:30 UTC at −300 moves back one, and a null
+  offset still falls back to UTC.
+- ☑ **`tsx` ran the TypeScript services in production images.** Both service
+  images now ship a bundle and nothing else — `/srv` contains `dist` (plus the
+  migration SQL on the API) and **no `node_modules` at all**. No tsx, no esbuild
+  binary, no build tooling of any kind at runtime.
+
+  Dependencies are bundled in rather than left external. That was not the first
+  design: leaving them external kept dragging tsx back into the image through
+  `drizzle-kit`, a dev dependency of `@lab/db` that npm's workspace resolution
+  installs regardless of `--omit=dev`. Bundling ends the argument.
+
+  It needs a `createRequire` banner — several dependencies are CommonJS and call
+  `require()` at runtime, and postgres.js reaching for `node:events` killed the
+  process at boot without it.
+
+  The deploy path was the trap worth catching: `deploy.sh` ran migrations inside
+  the API image via `tsx`, so the API image also bundles the migrator. Verified
+  by running `node dist/migrate.js` inside the built image against the real
+  database.
 - ☐ **The corpus now contains one ride exported twice**, collapsed correctly by
   the dedupe key. Worth knowing that duplicates exist rather than assuming one
   file is one session — a test encoded that assumption and had to be corrected
