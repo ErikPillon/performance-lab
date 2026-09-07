@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { api, type BlockRow, type RaceRow } from '../lib/api';
+import { api, type BlockRow, type RacePrediction, type RaceRow } from '../lib/api';
 import { Badge, Bar, ErrorNote, Loading, Panel, Stat } from '../components/ui';
 import { Empty } from '../components/PmcChart';
 import { blockProgress, daysUntil, nextRace } from '../lib/season';
@@ -39,6 +39,12 @@ export function Season({ athleteId }: { athleteId: string }) {
   const season = useQuery({
     queryKey: ['season', athleteId],
     queryFn: () => api.season(athleteId),
+  });
+  // Separate from the season itself: it costs a call into the analytics service,
+  // and a prediction being unavailable must not stop the page loading.
+  const predictions = useQuery({
+    queryKey: ['racePredictions', athleteId],
+    queryFn: () => api.racePredictions(athleteId),
   });
   // A full year back gives every block in view something to compare against.
   const from = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10);
@@ -172,10 +178,16 @@ export function Season({ athleteId }: { athleteId: string }) {
                     <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {r.date} · {r.sport}
                       {r.distanceM ? ` · ${f.km(r.distanceM, 1)} km` : ''}
-                      {r.goalTimeS ? ` · goal ${f.duration(r.goalTimeS)}` : ''}
-                      {r.resultTimeS ? ` · ran ${f.duration(r.resultTimeS)}` : ''}
+                      {/* raceTime, not duration: a goal rounded to whole minutes
+                          sits badly beside a prediction quoted to the second. */}
+                      {r.goalTimeS ? ` · goal ${f.raceTime(r.goalTimeS)}` : ''}
+                      {r.resultTimeS ? ` · ran ${f.raceTime(r.resultTimeS)}` : ''}
                     </div>
                   </div>
+                  <Prediction
+                    prediction={predictions.data?.predictions[r.id]}
+                    goalTimeS={r.goalTimeS}
+                  />
                   <div className="num" style={{ fontSize: 12, color: 'var(--muted)', width: 90, textAlign: 'right' }}>
                     {away >= 0 ? `in ${away} d` : `${-away} d ago`}
                   </div>
@@ -572,5 +584,50 @@ function TextButton({ onClick, children }: { onClick: () => void; children: Reac
       fontSize: 11, padding: '2px 7px', borderRadius: 5, cursor: 'pointer',
       border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)',
     }}>{children}</button>
+  );
+}
+
+/**
+ * A predicted finish beside the goal that was set for it.
+ *
+ * This is the one place the duration curve and the season plan meet: the
+ * prediction comes entirely from efforts the athlete has actually run, so a
+ * goal well inside it is evidence, and a goal well outside it is a decision
+ * being made with open eyes rather than by accident.
+ */
+function Prediction({
+  prediction,
+  goalTimeS,
+}: {
+  prediction?: RacePrediction;
+  goalTimeS: number | null;
+}) {
+  if (!prediction) return <div style={{ width: 156 }} />;
+
+  // Positive means the goal is faster than the prediction — the ambitious side.
+  const gap = goalTimeS != null ? prediction.seconds - goalTimeS : null;
+  const tone =
+    gap == null ? 'muted'
+      : gap > prediction.seconds * 0.03 ? 'warn'
+        : gap < -prediction.seconds * 0.03 ? 'good' : 'muted';
+
+  return (
+    <div style={{ width: 156, textAlign: 'right' }}>
+      <div className="num" style={{ fontSize: 13 }} title={`from a ${Math.round(prediction.reference.duration_s / 60)} min effort`}>
+        {f.raceTime(prediction.seconds)}
+        <span style={{ fontSize: 11, color: 'var(--faint)' }}> predicted</span>
+      </div>
+      {gap != null && (
+        <div style={{ fontSize: 11, marginTop: 2 }}>
+          <Badge tone={tone as 'muted' | 'warn' | 'good'}>
+            {gap > 0
+              ? `goal is ${f.raceTime(gap)} faster`
+              : gap < 0
+                ? `goal is ${f.raceTime(-gap)} slower`
+                : 'goal matches'}
+          </Badge>
+        </div>
+      )}
+    </div>
   );
 }

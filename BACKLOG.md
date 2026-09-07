@@ -375,9 +375,33 @@ speed) with a confidence range.
 
 **Partly done.** The two-parameter model (`D = CS·t + D′`) is implemented and
 fitted over 2–20 minutes; the same algebra gives critical power from a power
-curve. On this data critical speed comes out at 4:35/km against an
-independently-estimated threshold pace of 4:27/km — two methods within 8 s/km,
-which is a reassuring cross-check. VO₂max and race prediction remain.
+curve. Critical speed now comes out at 4:09/km on the grown corpus.
+
+**Done — race prediction.** Two models reported side by side rather than blended
+into one number: Riegel's empirical fatigue law, and the critical-speed model
+above. Where they disagree is information — it means the athlete's curve does
+not look like the population Riegel was fitted to. The critical-speed model
+stays quiet past an hour, where it becomes badly optimistic, and Riegel refuses
+to extrapolate past a fourfold jump from the effort anchoring it.
+
+Predictions surface on `/curve` for standard distances, and on `/season` beside
+each planned race's goal time — which is the only place the duration curve and
+the season plan meet.
+
+**The bug real data caught, and the reason to keep it written down.** The first
+version anchored Riegel on the *longest* effort in the curve, reasoning that a
+long anchor extrapolates less far. But the long end of a mean-maximal curve is
+not a maximal effort — it is whatever the athlete's best long *easy* run
+happened to be. It predicted a 5k at 4:58/km for an athlete whose critical speed
+is 4:09/km, because it was extrapolating from a two-hour steady run. Riegel is
+now evaluated from every anchor over five minutes and the fastest result wins: a
+submaximal anchor always yields a slower prediction, so taking the minimum
+selects the effort that was actually raced. On the real curve that anchors on
+the one-hour effort and gives 5k 19:53, 10k 40:50, half 1:29:25, marathon
+3:06:26 — 3:58/km through 4:25/km against a 4:09/km critical speed, which is the
+right shape.
+
+**Still open:** VO₂max estimate with trend.
 
 ### ◔ 11. Zone distribution over time and polarisation index
 

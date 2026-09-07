@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from .curves import DURATIONS, critical_speed
 from .downsample import bucket_min_max
+from .predict import predict, predict_standard
 from .fit import PARSER_VERSION, dedupe_key, parse_fit
 from .load import CALC_VERSION, Thresholds, compute_load
 from .pmc import CALC_VERSION as PMC_VERSION
@@ -202,7 +203,37 @@ def curve_critical(req: CriticalRequest) -> dict[str, Any]:
     """
     curve = {int(k): float(v) for k, v in req.curve.items()}
     fit = critical_speed(curve)
-    return {"fit": fit, "durations": list(DURATIONS)}
+    # Predictions travel with the fit rather than behind a second endpoint: the
+    # caller already has the curve in hand, and one of the two models is built
+    # from this very fit.
+    return {
+        "fit": fit,
+        "durations": list(DURATIONS),
+        "predictions": predict_standard(curve, fit),
+    }
+
+
+class PredictRequest(BaseModel):
+    curve: dict[str, float] = Field(description="duration in seconds -> best sustained average")
+    distances_m: list[float] = Field(description="race distances to predict, in metres")
+
+
+@app.post("/curve/predict")
+def curve_predict(req: PredictRequest) -> dict[str, Any]:
+    """Predict finish times for specific distances — an athlete's planned races.
+
+    Two models side by side rather than one blended number. Where they disagree
+    is information: it means this athlete's curve does not look like the
+    population Riegel was fitted to.
+    """
+    curve = {int(k): float(v) for k, v in req.curve.items()}
+    fit = critical_speed(curve)
+    return {
+        "fit": fit,
+        "predictions": [
+            p for d in req.distances_m if (p := predict(d, curve, fit)) is not None
+        ],
+    }
 
 
 @app.post("/thresholds/estimate")

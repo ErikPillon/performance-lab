@@ -232,6 +232,48 @@ export function Curve({ athleteId }: { athleteId: string }) {
         })}
       </div>
 
+      {(allTime.data?.predictions?.length ?? 0) > 0 && (
+        <Panel
+          title="Race predictions"
+          subtitle="Extrapolated from your own best efforts — no lab test, no threshold assumption"
+        >
+          <div style={{ display: 'grid', gap: 6 }}>
+            {allTime.data!.predictions.map((p) => {
+              const spread = p.high_s - p.low_s;
+              return (
+                <div key={p.label ?? p.distance_m} style={{ display: 'flex', alignItems: 'baseline',
+                  gap: 12, padding: '7px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+                  <span style={{ width: 120, color: 'var(--muted)' }}>{p.label}</span>
+                  <span className="num" style={{ fontSize: 18, fontWeight: 600, width: 92 }}>
+                    {f.raceTime(p.seconds)}
+                  </span>
+                  <span className="num" style={{ width: 92, color: 'var(--muted)', fontSize: 12 }}>
+                    {f.pace(p.seconds / (p.distance_m / 1000))}/km
+                  </span>
+                  {/*
+                    The spread is disagreement between two independent models,
+                    not a statistical interval. Shown only when both spoke.
+                  */}
+                  <span className="num" style={{ color: 'var(--faint)', fontSize: 12, flex: 1 }}>
+                    {spread > 1 ? `${f.raceTime(p.low_s)}–${f.raceTime(p.high_s)}` : ''}
+                  </span>
+                  <Badge tone={p.confidence === 'high' ? 'good' : p.confidence === 'moderate' ? 'warn' : 'muted'}>
+                    {p.confidence}
+                  </Badge>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+            Two models, reported side by side rather than averaged into one number: Riegel's
+            empirical fatigue law extrapolated from your best matching effort, and the
+            critical-speed model above. Where they disagree is information — it means your curve
+            does not look like the population Riegel was fitted to. The critical-speed model stays
+            quiet past an hour, where it becomes badly optimistic.
+          </div>
+        </Panel>
+      )}
+
       {critical && (
         <Panel
           title={allTime.data?.metric === 'power_w' ? 'Critical power' : 'Critical speed'}

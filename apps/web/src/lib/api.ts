@@ -189,6 +189,8 @@ export interface CurveResponse {
     r_squared: number;
     points: number;
   } | null;
+  /** Empty for channels that do not measure distance, e.g. a heart-rate curve. */
+  predictions: RacePrediction[];
   available: string[];
 }
 
@@ -344,6 +346,20 @@ export interface BlockRow {
   note: string | null;
 }
 
+export interface RacePrediction {
+  label?: string;
+  distance_m: number;
+  /** One entry per model that had something defensible to say. */
+  estimates: Record<string, number>;
+  seconds: number;
+  low_s: number;
+  high_s: number;
+  reference: { duration_s: number; distance_m: number; speed_mps: number };
+  /** How far past the effort it is extrapolated from. Above ~4 it is refused. */
+  extrapolation_ratio: number;
+  confidence: 'high' | 'moderate' | 'low';
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -422,4 +438,6 @@ export const api = {
     ),
   deleteBlock: (id: string, blockId: string) =>
     send<{ deleted: number }>(`/athletes/${id}/blocks/${blockId}`, 'DELETE'),
+  racePredictions: (id: string) =>
+    get<{ predictions: Record<string, RacePrediction> }>(`/athletes/${id}/races/predictions`),
 };

@@ -68,6 +68,13 @@ export async function curveRoutes(app: FastifyInstance) {
     // Fit critical speed/power from the aggregated curve, not per activity: the
     // model wants best efforts, and no single session contains all of them.
     let critical = null;
+    // Race predictions come back with the fit rather than from a second call:
+    // one of the two models is built from that very fit, and the curve has
+    // already been sent.
+    let predictions: unknown[] = [];
+    // Only meaningful for distance-covering channels. A prediction off a heart
+    // rate curve would be a number with no units behind it.
+    const predictable = metric === 'gap_mps' || metric === 'speed_mps';
     if (points.length >= 3) {
       try {
         const res = await fetch(`${env.analyticsUrl}/curve/critical`, {
@@ -78,7 +85,11 @@ export async function curveRoutes(app: FastifyInstance) {
           }),
           signal: AbortSignal.timeout(10_000),
         });
-        if (res.ok) critical = ((await res.json()) as { fit: unknown }).fit;
+        if (res.ok) {
+          const body = (await res.json()) as { fit: unknown; predictions?: unknown[] };
+          critical = body.fit;
+          if (predictable) predictions = body.predictions ?? [];
+        }
       } catch {
         /* the curve is still worth returning without a fit */
       }
@@ -94,6 +105,7 @@ export async function curveRoutes(app: FastifyInstance) {
       metric,
       points,
       critical,
+      predictions,
       available: available.map((r) => r.metric),
     };
   });

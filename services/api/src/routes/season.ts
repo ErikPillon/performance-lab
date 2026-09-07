@@ -1,6 +1,7 @@
-import { and, asc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { db, race, trainingBlock } from '@lab/db';
+import { activityCurve, db, race, trainingBlock } from '@lab/db';
+import { env } from '../env.js';
 import { requireAthleteAccess } from '../access.js';
 import {
   blockAdvisories, validateBlock, validateRace,
@@ -176,4 +177,103 @@ export async function seasonRoutes(app: FastifyInstance) {
       return reply.send({ deleted: deleted.length });
     },
   );
+}
+
+/**
+ * Which channel a race should be predicted from, per sport.
+ *
+ * Grade-adjusted speed where it exists: a training block full of hills
+ * otherwise predicts a flat race too slowly. Falls back to raw speed.
+ */
+const PREDICT_METRIC: Record<string, string[]> = {
+  running: ['gap_mps', 'speed_mps'],
+  cycling: ['speed_mps'],
+  swimming: ['speed_mps'],
+  rowing: ['speed_mps'],
+};
+
+export async function racePredictionRoutes(app: FastifyInstance) {
+  /**
+   * Predicted finish times for the athlete's planned races.
+   *
+   * Separate from `/season` because it costs a call into the analytics service
+   * and most views of the page do not need it — and because a prediction being
+   * unavailable should not stop the season itself from loading.
+   */
+  app.get<{ Params: { id: string } }>('/athletes/:id/races/predictions', async (req) => {
+    await requireAthleteAccess(req, req.params.id);
+
+    const races = await db
+      .select()
+      .from(race)
+      .where(and(eq(race.athleteId, req.params.id), gte(race.date, todayIso())))
+      .orderBy(asc(race.date));
+
+    // Only races with a distance can be predicted, and only sports whose curve
+    // measures distance covered.
+    const wanted = races.filter((r) => r.distanceM && PREDICT_METRIC[r.sport]);
+    if (wanted.length === 0) return { predictions: [] };
+
+    const out: Record<string, unknown> = {};
+    // Grouped by sport: one curve fetch and one analytics call per sport,
+    // rather than per race.
+    for (const sport of new Set(wanted.map((r) => r.sport))) {
+      const metric = await firstAvailableMetric(req.params.id, sport);
+      if (!metric) continue;
+
+      const points = await db
+        .selectDistinctOn([activityCurve.durationS], {
+          durationS: activityCurve.durationS,
+          value: activityCurve.value,
+        })
+        .from(activityCurve)
+        .where(and(
+          eq(activityCurve.athleteId, req.params.id),
+          eq(activityCurve.sport, sport as never),
+          eq(activityCurve.metric, metric),
+        ))
+        .orderBy(activityCurve.durationS, desc(activityCurve.value));
+      if (points.length < 3) continue;
+
+      const distances = wanted.filter((r) => r.sport === sport).map((r) => r.distanceM!);
+      try {
+        const res = await fetch(`${env.analyticsUrl}/curve/predict`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            curve: Object.fromEntries(points.map((p) => [p.durationS, p.value])),
+            distances_m: distances,
+          }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) continue;
+        const body = (await res.json()) as { predictions: { distance_m: number }[] };
+        for (const prediction of body.predictions) {
+          // Matched back by distance, which is what was sent.
+          for (const r of wanted) {
+            if (r.sport === sport && Math.abs((r.distanceM ?? 0) - prediction.distance_m) < 1) {
+              out[r.id] = prediction;
+            }
+          }
+        }
+      } catch {
+        /* a race without a prediction is still a race */
+      }
+    }
+
+    return { predictions: out };
+  });
+
+  async function firstAvailableMetric(athleteId: string, sport: string): Promise<string | null> {
+    const available = await db
+      .selectDistinct({ metric: activityCurve.metric })
+      .from(activityCurve)
+      .where(and(eq(activityCurve.athleteId, athleteId), eq(activityCurve.sport, sport as never)));
+    const present = new Set(available.map((r) => r.metric));
+    return (PREDICT_METRIC[sport] ?? []).find((m) => present.has(m)) ?? null;
+  }
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
