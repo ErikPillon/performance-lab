@@ -191,6 +191,8 @@ export interface CurveResponse {
   } | null;
   /** Empty for channels that do not measure distance, e.g. a heart-rate curve. */
   predictions: RacePrediction[];
+  /** Running only — Daniels' equations are fitted to running economy. */
+  vdot: { vdot: number; from_duration_s: number; equivalent_5k_s: number } | null;
   available: string[];
 }
 

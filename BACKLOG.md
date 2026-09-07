@@ -362,7 +362,7 @@ since March", not "we lost the last six hours".
 
 ## Tier 3 — Analytical depth
 
-### ◔ 10. Critical power, critical swim speed, VO₂max and race prediction
+### ☑ 10. Critical power, critical swim speed, VO₂max and race prediction
 
 **Why.** Runalyze's signature features and the reason to prefer this over a
 spreadsheet.
@@ -401,7 +401,30 @@ the one-hour effort and gives 5k 19:53, 10k 40:50, half 1:29:25, marathon
 3:06:26 — 3:58/km through 4:25/km against a 4:09/km critical speed, which is the
 right shape.
 
-**Still open:** VO₂max estimate with trend.
+**Done — VO₂max.** Daniels and Gilbert's VDOT: oxygen cost as a function of
+velocity, divided by the fraction of maximum sustainable for the duration. Taken
+as the best across every usable effort in the curve rather than an average — a
+curve holds one genuinely maximal effort and many submaximal ones, and only the
+best of them says anything about capacity.
+
+On this corpus VDOT is **51.2**, anchored on the one-hour effort, with an
+equivalent 5k of 19:32 — within 21 seconds of the independent Riegel prediction
+of 19:53, which is a reassuring cross-check between two unrelated models.
+
+The per-effort breakdown is also the clearest evidence for the anchor design in
+race prediction: VDOT climbs to 51.2 at one hour, then falls to 46.9 at ninety
+minutes and **31.6 at two hours**. Those long efforts are easy running, not
+capacity, and anything averaging over them would be badly wrong.
+
+Two things the code refuses to do. It quotes no VDOT off a cycling or swimming
+curve — Daniels' equations are fitted to running economy, and doing so would be
+a category error dressed as a measurement. And the UI states plainly that this
+is a transformation of running performance rather than a measurement: nothing
+observes oxygen uptake, and the number moves with heat, terrain, sleep and
+pacing.
+
+**Still open:** a VO₂max trend over time. The point estimate is here; plotting
+it per window needs the curve recomputed over rolling date ranges.
 
 ### ◔ 11. Zone distribution over time and polarisation index
 

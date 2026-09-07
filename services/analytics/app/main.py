@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from .curves import DURATIONS, critical_speed
 from .downsample import bucket_min_max
 from .predict import predict, predict_standard
+from .vdot import from_curve as vdot_from_curve
 from .fit import PARSER_VERSION, dedupe_key, parse_fit
 from .load import CALC_VERSION, Thresholds, compute_load
 from .pmc import CALC_VERSION as PMC_VERSION
@@ -210,6 +211,7 @@ def curve_critical(req: CriticalRequest) -> dict[str, Any]:
         "fit": fit,
         "durations": list(DURATIONS),
         "predictions": predict_standard(curve, fit),
+        "vdot": vdot_from_curve(curve),
     }
 
 

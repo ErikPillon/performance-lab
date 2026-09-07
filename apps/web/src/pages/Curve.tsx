@@ -232,6 +232,34 @@ export function Curve({ athleteId }: { athleteId: string }) {
         })}
       </div>
 
+      {allTime.data?.vdot && (
+        <Panel title="VO₂max estimate" subtitle="Daniels' VDOT, from your best effort">
+          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <div>
+              <div className="num" style={{ fontSize: 30, fontWeight: 600 }}>
+                {allTime.data.vdot.vdot}
+                <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 400 }}> ml/kg/min</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                from your best {Math.round(allTime.data.vdot.from_duration_s / 60)}-minute effort
+              </div>
+            </div>
+            <div>
+              <div className="num" style={{ fontSize: 20, fontWeight: 600 }}>
+                {f.raceTime(allTime.data.vdot.equivalent_5k_s)}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>equivalent 5k</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 14, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+            <strong>This is a transformation of running performance, not a measurement.</strong>{' '}
+            Nothing here observes oxygen uptake — it says you run like someone whose measured
+            VO₂max is around this, which is a weaker claim than a lab test and moves with heat,
+            terrain, sleep and pacing. The trend over months is the part worth reading.
+          </div>
+        </Panel>
+      )}
+
       {(allTime.data?.predictions?.length ?? 0) > 0 && (
         <Panel
           title="Race predictions"
