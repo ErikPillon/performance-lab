@@ -380,6 +380,14 @@ export interface ConnectionsResponse {
   canManage: boolean;
 }
 
+export interface SubscriptionStatus {
+  configured: boolean;
+  subscription: { id: number; callback_url: string } | null;
+  callbackUrl?: string;
+  /** Whether Strava could plausibly reach the callback from the internet. */
+  reachable?: boolean;
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -468,5 +476,15 @@ export const api = {
   syncStrava: (id: string) =>
     send<{ jobId: string; alreadyRunning: boolean }>(
       `/athletes/${id}/connections/strava/sync`, 'POST',
+    ),
+  stravaSubscription: (id: string) =>
+    get<SubscriptionStatus>(`/athletes/${id}/connections/strava/subscription`),
+  createStravaSubscription: (id: string) =>
+    send<{ subscription: { id: number } }>(
+      `/athletes/${id}/connections/strava/subscription`, 'POST',
+    ),
+  deleteStravaSubscription: (id: string, subscriptionId: number) =>
+    send<{ deleted: boolean }>(
+      `/athletes/${id}/connections/strava/subscription/${subscriptionId}`, 'DELETE',
     ),
 };

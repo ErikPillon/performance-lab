@@ -10,7 +10,11 @@ import { env } from './env.js';
 const workers = startWorker();
 const app = await buildServer();
 await app.listen({ port: env.port, host: '0.0.0.0' });
-app.log.info(`ingest listening on :${env.port}; parse, load and pmc workers running`);
+// Named individually rather than as a count: this line is how you tell from a
+// log whether a newly added worker actually started.
+app.log.info(
+  `ingest listening on :${env.port}; workers running: parse, load, pmc, recompute, strava-sync`,
+);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {

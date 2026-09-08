@@ -21,7 +21,7 @@ import {
   type PmcJob,
   type RecomputeJob,
 } from '@lab/jobs';
-import { syncStrava } from './stravaSync.js';
+import { importStravaActivity, syncStrava } from './stravaSync.js';
 
 /**
  * Decode one raw file into an activity row plus a Parquet stream object.
@@ -198,7 +198,11 @@ async function handleRecompute(job: {
  * resumes from the cursor.
  */
 async function handleStravaSync(job: { data: StravaSyncJob }): Promise<string> {
-  const result = await syncStrava(job.data.athleteId);
+  const { athleteId, stravaActivityId } = job.data;
+  // A webhook names one activity; a manual or scheduled sync walks the history.
+  const result = stravaActivityId
+    ? await importStravaActivity(athleteId, stravaActivityId)
+    : await syncStrava(athleteId);
   return `${result.status}: ${result.imported} imported, ${result.skipped} already had, ${result.failed} failed`;
 }
 

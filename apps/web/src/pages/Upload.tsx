@@ -396,7 +396,96 @@ function Connections({ athleteId }: { athleteId: string }) {
           <ErrorNote error={connect.error ?? disconnect.error ?? sync.error} />
         </div>
       )}
+      {linked && canManage && <AutomaticImport athleteId={athleteId} />}
     </Panel>
+  );
+}
+
+/**
+ * The webhook subscription.
+ *
+ * A latency optimisation, not a correctness mechanism — deliveries can be
+ * missed, replayed or arrive out of order, so the polling sync stays what makes
+ * this eventually right. Said plainly here because "automatic" invites the
+ * assumption that it is the thing keeping the data correct.
+ *
+ * The subscription is per *application*, not per athlete: Strava allows exactly
+ * one. That makes it closer to a server setting than a user action, which is
+ * why it is a deliberate step rather than something that happens on connect.
+ */
+function AutomaticImport({ athleteId }: { athleteId: string }) {
+  const queryClient = useQueryClient();
+  const subscription = useQuery({
+    queryKey: ['stravaSubscription', athleteId],
+    queryFn: () => api.stravaSubscription(athleteId),
+    // A network call to Strava on every page load is not worth it.
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+  const create = useMutation({
+    mutationFn: () => api.createStravaSubscription(athleteId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stravaSubscription', athleteId] }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteStravaSubscription(athleteId, id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stravaSubscription', athleteId] }),
+  });
+
+  if (!subscription.data) return null;
+  const { subscription: sub, reachable, callbackUrl } = subscription.data;
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+        <strong>Automatic import</strong>
+        {sub ? <Badge tone="good">active</Badge> : <Badge tone="muted">off</Badge>}
+        <span style={{ marginLeft: 'auto' }}>
+          {sub ? (
+            <button onClick={() => remove.mutate(sub.id)} style={buttonStyle(false)}>
+              Turn off
+            </button>
+          ) : (
+            <button
+              onClick={() => create.mutate()}
+              disabled={create.isPending || !reachable}
+              style={{ ...buttonStyle(true), opacity: reachable ? 1 : 0.5 }}
+              title={reachable ? undefined : 'Strava cannot reach this server'}
+            >
+              {create.isPending ? 'Registering…' : 'Turn on'}
+            </button>
+          )}
+        </span>
+      </div>
+
+      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+        {sub ? (
+          <>
+            Strava notifies this server as activities appear, so they import within seconds
+            instead of on the next sync. The regular sync still runs and is what catches anything
+            a notification missed.
+          </>
+        ) : !reachable ? (
+          <>
+            Not available yet: Strava has to reach{' '}
+            <code style={{ fontSize: 11 }}>{callbackUrl}</code> from the internet, and a
+            localhost or LAN address cannot be reached from outside your network. Everything else
+            works without it — press <strong>Sync now</strong> to import.
+          </>
+        ) : (
+          <>
+            Off. Activities import when you press <strong>Sync now</strong>. Turning this on has
+            Strava notify the server instead, so they arrive within seconds.
+          </>
+        )}
+      </div>
+
+      {(create.isError || remove.isError) && (
+        <div style={{ marginTop: 10 }}>
+          <ErrorNote error={create.error ?? remove.error} />
+        </div>
+      )}
+    </div>
   );
 }
 

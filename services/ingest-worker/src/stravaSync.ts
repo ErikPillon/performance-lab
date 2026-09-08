@@ -132,7 +132,7 @@ export async function syncStrava(athleteId: string): Promise<SyncResult> {
 }
 
 /** Fetch, store and convert one activity. Returns whether it was new. */
-async function importOne(
+export async function importOne(
   athleteId: string,
   token: string,
   stravaId: number,
@@ -256,4 +256,51 @@ async function importOne(
     await loadQueue().add('load', { activityId: row.id, athleteId }, { jobId: `load-${row.id}` });
   }
   return 'imported';
+}
+
+/**
+ * Import one activity named by a webhook.
+ *
+ * Separate from `syncStrava` because the shapes differ: a webhook already knows
+ * which activity changed, so there is nothing to paginate and no cursor to
+ * advance. The cursor belongs to the polling walk, and moving it here would
+ * make a single out-of-order delivery skip everything between.
+ */
+export async function importStravaActivity(
+  athleteId: string,
+  stravaActivityId: number,
+): Promise<SyncResult> {
+  const token = await freshStravaToken(athleteId);
+  if (!token) return { status: 'no_connection', imported: 0, skipped: 0, failed: 0 };
+
+  try {
+    const outcome = await importOne(athleteId, token, stravaActivityId);
+    if (outcome === 'imported') {
+      await db
+        .update(athleteConnection)
+        .set({
+          lastSyncAt: new Date(),
+          lastError: null,
+          importedCount: sql`${athleteConnection.importedCount} + 1`,
+        })
+        .where(and(
+          eq(athleteConnection.athleteId, athleteId),
+          eq(athleteConnection.provider, 'strava'),
+        ));
+      await requestPmcRebuild(athleteId);
+      return { status: 'ok', imported: 1, skipped: 0, failed: 0 };
+    }
+    return { status: 'ok', imported: 0, skipped: 1, failed: 0 };
+  } catch (err) {
+    if (err instanceof RateLimited) {
+      return {
+        status: 'rate_limited', imported: 0, skipped: 0, failed: 0,
+        resumeAfterMs: err.retryAfterMs, message: err.message,
+      };
+    }
+    return {
+      status: 'error', imported: 0, skipped: 0, failed: 1,
+      message: err instanceof Error ? err.message : 'import failed',
+    };
+  }
 }
