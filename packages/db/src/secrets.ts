@@ -118,3 +118,16 @@ export function verifyState(state: string): string | null {
   if (Number(expiry) < Date.now()) return null;
   return athleteId;
 }
+
+/**
+ * A stable secret for a named purpose, derived from the encryption key.
+ *
+ * Strava's webhook subscription needs a `verify_token` it can echo back, and
+ * that value has to survive restarts. Deriving it beats another environment
+ * variable: one fewer secret to set, generate and lose, and it cannot drift out
+ * of sync with itself. Distinct purposes give unrelated values, so leaking one
+ * says nothing about another.
+ */
+export function deriveSecret(purpose: string): string {
+  return createHmac('sha256', key()).update(`derive:${purpose}`).digest('base64url');
+}

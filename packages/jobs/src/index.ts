@@ -41,6 +41,14 @@ export interface PmcJob {
 
 export interface StravaSyncJob {
   athleteId: string;
+  /**
+   * One specific Strava activity, from a webhook.
+   *
+   * Absent means "walk the history from the cursor". A webhook names the exact
+   * activity, and re-walking a paginated history to find a single new session
+   * would burn the rate limit for nothing.
+   */
+  stravaActivityId?: number;
 }
 
 export interface RecomputeJob {

@@ -613,11 +613,42 @@ without asking Strava again.
   `AUTH_BASE_URL/api/connections/strava/callback`.
 - ☐ **Untested against the live API.** Every part that can be tested without
   credentials is; nothing has spoken to Strava.
-- ☐ **Webhooks.** The original plan was webhook-first with polling as
-  reconciliation; what exists is the polling half. That is the right order —
-  polling is what makes the system correct after an outage, a missed delivery
-  or a replay, and a webhook only makes it faster. It also needs the same
-  public endpoint the callback does, so it is blocked on the same thing.
+**Done — webhooks.** Subscription management, the validation handshake and the
+event receiver. Polling stays the reconciliation path: deliveries can be missed,
+replayed or arrive out of order, so it is what makes the system eventually
+correct and the webhook only makes it fast. The UI says so rather than letting
+"automatic" imply otherwise.
+
+Three constraints shaped it. Strava validates a subscription by calling the
+callback *synchronously* with a challenge to echo, so no subscription can exist
+before the callback is public. Events must be answered inside two seconds or
+Strava retries, so nothing is processed inline — the handler interprets, routes
+and enqueues. And payloads are **unsigned**, so authenticity rests on the verify
+token used at subscription time plus routing on `owner_id`: an event naming an
+athlete this server has no connection for is discarded, which bounds a forged
+POST to re-importing something already authorised.
+
+Two decisions worth flagging:
+
+- **Deletions are not mirrored.** An activity removed on Strava may still have
+  arrived here as an uploaded FIT, which is the better copy. Silently deleting
+  training because a mirror changed is not a trade worth making.
+- **Deauthorisation is honoured.** Strava sends `updates.authorized` as the
+  *string* `"false"`; a truthiness check reads that as access being fine, which
+  is exactly backwards. It marks the connection `needs_reauth` and forgets the
+  tokens.
+
+Verified locally against synthetic requests: the challenge is echoed verbatim, a
+bad verify token gets 403, a non-validation GET gets 400, an event for an
+unknown athlete is discarded, and a deletion is ignored. The route audit flagged
+both public Strava routes; rather than weaken it, each is allowlisted explicitly
+and backed by a test asserting what actually guards it — including one that the
+webhook never imports inline.
+
+- ☐ **A public callback**, which is still #9. Strava must reach
+  `AUTH_BASE_URL/api/connections/strava/webhook`, so the subscription cannot be
+  registered from localhost or a LAN address. The UI disables the button and
+  explains why rather than failing on press.
 
 ### ☐ 15. Garmin and Apple Watch
 

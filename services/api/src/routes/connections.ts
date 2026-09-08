@@ -1,7 +1,11 @@
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { athleteConnection, db, encryptToken, signState, verifyState } from '@lab/db';
-import { stravaToken } from '@lab/ingest';
+import {
+  athleteForStravaOwner, createSubscription, deleteSubscription, interpretWebhook,
+  markDeauthorized, stravaToken, viewSubscription, webhookVerifyToken,
+  type WebhookEvent,
+} from '@lab/ingest';
 import { stravaSyncQueue } from '@lab/jobs';
 import { env } from '../env.js';
 import { requireAthleteAccess } from '../access.js';
@@ -184,6 +188,153 @@ export async function connectionRoutes(app: FastifyInstance) {
       }
       await queue.add('strava-sync', { athleteId: req.params.id }, { jobId });
       return reply.send({ jobId, alreadyRunning: false });
+    },
+  );
+
+  /**
+   * Strava's subscription validation.
+   *
+   * Creating a subscription makes Strava call this immediately with a challenge
+   * that has to be echoed back verbatim. The verify token is what proves the
+   * request came from our own subscription attempt rather than from anyone who
+   * found the URL.
+   */
+  app.get<{
+    Querystring: Record<string, string | undefined>;
+  }>('/connections/strava/webhook', async (req, reply) => {
+    const mode = req.query['hub.mode'];
+    const challenge = req.query['hub.challenge'];
+    const token = req.query['hub.verify_token'];
+
+    if (mode !== 'subscribe' || !challenge) {
+      return reply.code(400).send({ error: 'not a subscription validation' });
+    }
+    if (token !== webhookVerifyToken()) {
+      req.log.warn('strava webhook validation with a bad verify token');
+      return reply.code(403).send({ error: 'bad verify token' });
+    }
+    // Strava requires this exact key, dot and all.
+    return reply.send({ 'hub.challenge': challenge });
+  });
+
+  /**
+   * Event delivery.
+   *
+   * Strava expects a 200 within two seconds and retries otherwise, so nothing
+   * is processed here — the event is interpreted, routed to an athlete and
+   * enqueued.
+   *
+   * Payloads are unsigned. Authenticity rests on two things: the verify token
+   * used when the subscription was created, and routing on `owner_id`. An event
+   * naming a Strava athlete this server has no connection for is discarded, so
+   * the worst a forged POST achieves is re-importing an activity the athlete
+   * already authorised us to read.
+   */
+  app.post<{ Body: WebhookEvent }>('/connections/strava/webhook', async (req, reply) => {
+    // Answer first, work later. Everything below is deliberately cheap.
+    const event = req.body;
+    if (!event || typeof event !== 'object') return reply.code(200).send({ ok: true });
+
+    const action = interpretWebhook(event);
+    if (action.kind === 'ignore') {
+      req.log.info({ reason: action.reason }, 'strava webhook ignored');
+      return reply.code(200).send({ ok: true });
+    }
+
+    const athleteId = await athleteForStravaOwner(event.owner_id);
+    if (!athleteId) {
+      // Not an error: Strava sends one subscription's events for every athlete
+      // who has authorised the application, including any this server does not
+      // know about.
+      req.log.info({ owner: event.owner_id }, 'strava webhook for an unknown athlete');
+      return reply.code(200).send({ ok: true });
+    }
+
+    if (action.kind === 'deauthorized') {
+      await markDeauthorized(event.owner_id);
+      return reply.code(200).send({ ok: true });
+    }
+
+    // Job id keyed on the activity, so Strava's retries and its habitual
+    // create-then-update pair collapse into one import.
+    await stravaSyncQueue().add(
+      'strava-sync',
+      { athleteId, stravaActivityId: action.activityId },
+      { jobId: `strava-activity-${action.activityId}` },
+    );
+    return reply.code(200).send({ ok: true });
+  });
+
+  /**
+   * Subscription management.
+   *
+   * Owner-only and deliberately manual. A subscription is per *application*,
+   * not per athlete — Strava allows exactly one — so this is closer to a server
+   * setting than to a user action, and creating one silently on connect would
+   * be surprising.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/athletes/:id/connections/strava/subscription',
+    async (req, reply) => {
+      const access = await requireAthleteAccess(req, req.params.id);
+      if (access.relationship !== 'owner') {
+        return reply.code(403).send({ error: 'only the athlete can manage this' });
+      }
+      if (!env.strava.configured) return reply.send({ configured: false, subscription: null });
+
+      const callbackUrl = `${env.auth.baseUrl}/api/connections/strava/webhook`;
+      try {
+        const subscription = await viewSubscription();
+        return reply.send({
+          configured: true,
+          subscription,
+          callbackUrl,
+          // Strava has to reach this from the internet, which a LAN address or
+          // localhost cannot satisfy however well it works in a browser.
+          reachable: /^https:\/\/(?!localhost|127\.|192\.168\.|10\.)/.test(callbackUrl),
+        });
+      } catch (err) {
+        return reply.code(502).send({
+          error: err instanceof Error ? err.message : 'could not reach Strava',
+        });
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/athletes/:id/connections/strava/subscription',
+    async (req, reply) => {
+      const access = await requireAthleteAccess(req, req.params.id);
+      if (access.relationship !== 'owner') {
+        return reply.code(403).send({ error: 'only the athlete can manage this' });
+      }
+      if (!env.strava.configured) {
+        return reply.code(503).send({ error: 'Strava is not configured on this server' });
+      }
+      try {
+        const subscription = await createSubscription(
+          `${env.auth.baseUrl}/api/connections/strava/webhook`,
+        );
+        return reply.send({ subscription });
+      } catch (err) {
+        // Almost always "Strava could not reach the callback", which is a
+        // deployment fact rather than a bug, so it is reported as given.
+        return reply.code(502).send({
+          error: err instanceof Error ? err.message : 'could not create the subscription',
+        });
+      }
+    },
+  );
+
+  app.delete<{ Params: { id: string; subscriptionId: string } }>(
+    '/athletes/:id/connections/strava/subscription/:subscriptionId',
+    async (req, reply) => {
+      const access = await requireAthleteAccess(req, req.params.id);
+      if (access.relationship !== 'owner') {
+        return reply.code(403).send({ error: 'only the athlete can manage this' });
+      }
+      await deleteSubscription(Number(req.params.subscriptionId));
+      return reply.send({ deleted: true });
     },
   );
 

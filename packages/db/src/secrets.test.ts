@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { decryptToken, encryptToken, signState, verifyState } from './secrets.js';
+import { decryptToken, deriveSecret, encryptToken, signState, verifyState } from './secrets.js';
 
 const saved = process.env.TOKEN_ENCRYPTION_KEY;
 
@@ -87,4 +87,21 @@ test('malformed state values return null rather than throwing', () => {
   for (const bad of ['', '.', 'no-dot', '!!!.###', 'a.b.c']) {
     assert.equal(verifyState(bad), null, `should reject ${JSON.stringify(bad)}`);
   }
+});
+
+test('a derived secret is stable, and unrelated across purposes', () => {
+  // Strava echoes the webhook verify token back at subscription time, so it has
+  // to survive a restart — deriving it avoids another environment variable that
+  // could drift or go missing.
+  assert.equal(deriveSecret('strava-webhook'), deriveSecret('strava-webhook'));
+  assert.notEqual(deriveSecret('strava-webhook'), deriveSecret('something-else'));
+  assert.ok(deriveSecret('strava-webhook').length >= 32);
+});
+
+test('a derived secret changes with the key', () => {
+  const before = deriveSecret('strava-webhook');
+  const saved = process.env.TOKEN_ENCRYPTION_KEY;
+  process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+  assert.notEqual(deriveSecret('strava-webhook'), before);
+  process.env.TOKEN_ENCRYPTION_KEY = saved;
 });

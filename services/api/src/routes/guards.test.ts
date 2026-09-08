@@ -21,13 +21,19 @@ const GUARDS = ['requireAthleteAccess', 'requireOwner', 'requireActivityAccess',
 /**
  * Reachable without a session, deliberately.
  *
- * The Strava callback is a top-level redirect from strava.com, so it cannot
- * require one. It is not unauthorised: it is authorised by a signed `state`
- * value instead, and the test below asserts that rather than taking the
- * exemption on trust. Adding a route here without an equivalent proof is how
- * this list stops meaning anything.
+ * Neither Strava route can require one — the callback is a top-level redirect
+ * from strava.com, and the webhook is a server-to-server POST. Neither is
+ * unauthorised, though: the callback is authorised by a signed `state`, and the
+ * webhook by a verify token plus routing on an owner this server already knows.
+ * Both are asserted below rather than taken on trust. Adding a route to this
+ * list without an equivalent proof is how the list stops meaning anything.
  */
-const PUBLIC_ROUTES = new Set(['/me', '/auth/*', '/connections/strava/callback']);
+const PUBLIC_ROUTES = new Set([
+  '/me',
+  '/auth/*',
+  '/connections/strava/callback',
+  '/connections/strava/webhook',
+]);
 
 const ROUTES_DIR = new URL('.', import.meta.url).pathname;
 
@@ -96,5 +102,48 @@ test('the Strava callback verifies its signed state', () => {
   assert.ok(
     /if\s*\(!athleteId\)/.test(body),
     'a state that fails verification must stop the request',
+  );
+});
+
+test('the Strava webhook checks its verify token and routes by a known owner', () => {
+  // Exempt from the session guard because Strava calls it directly. Strava does
+  // not sign these payloads, so the only things standing between the open
+  // internet and a queued job are the verify token on the validation handshake
+  // and the owner lookup on delivery.
+  const text = readFileSync(join(ROUTES_DIR, 'connections.ts'), 'utf8');
+
+  const get = text.slice(text.indexOf("app.get<{\n    Querystring"));
+  const validation = get.slice(0, get.indexOf('app.post'));
+  assert.ok(
+    validation.includes('webhookVerifyToken()'),
+    'the validation handshake must compare against the verify token',
+  );
+  assert.ok(
+    /!==\s*webhookVerifyToken\(\)/.test(validation),
+    'a mismatched verify token must be rejected, not merely logged',
+  );
+
+  const post = text.slice(text.indexOf("app.post<{ Body: WebhookEvent }>"));
+  const handler = post.slice(0, post.indexOf('Subscription management'));
+  assert.ok(
+    handler.includes('athleteForStravaOwner'),
+    'delivery must resolve the athlete from owner_id rather than trusting the body',
+  );
+  assert.ok(
+    /if\s*\(!athleteId\)/.test(handler),
+    'an event for an athlete this server does not know must be discarded',
+  );
+});
+
+test('the webhook never processes an event inline', () => {
+  // Strava retries anything not answered within two seconds, and a retry storm
+  // against a slow import is how a webhook turns into an outage.
+  const text = readFileSync(join(ROUTES_DIR, 'connections.ts'), 'utf8');
+  const post = text.slice(text.indexOf("app.post<{ Body: WebhookEvent }>"));
+  const handler = post.slice(0, post.indexOf('Subscription management'));
+  assert.ok(handler.includes('stravaSyncQueue()'), 'work must be enqueued');
+  assert.ok(
+    !/importStravaActivity|syncStrava\(/.test(handler),
+    'the handler must not import inline',
   );
 });
