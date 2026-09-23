@@ -414,7 +414,32 @@ export interface CoverageAreaRow {
   streetsDone: number;
   subareas: number;
   activities: number;
+  sectors: number;
   computedAt: string;
+}
+
+export interface SectorPass {
+  activity_id: string;
+  /** When the start gate was crossed. */
+  at: string | null;
+  elapsed_s: number;
+  speed_mps: number;
+  avg_hr?: number | null;
+  gain_m?: number;
+  /** Grade-adjusted: the speed this would have been on the flat. */
+  gap_speed_mps?: number;
+}
+
+export interface Sector {
+  key: string;
+  name: string;
+  length_m: number;
+  activities: number;
+  polyline: string;
+  passes: SectorPass[];
+  best_s: number;
+  median_s: number;
+  last_s: number;
 }
 
 export interface CoverageProgress {
@@ -446,6 +471,7 @@ export interface CoverageDetail {
   subareas_approx: boolean;
   runs: { covered: string[]; uncovered: string[] };
   activities: number;
+  sectors?: Sector[];
 }
 
 export const api = {

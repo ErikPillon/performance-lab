@@ -1,0 +1,1 @@
+ALTER TABLE "coverage_area" ADD COLUMN "sectors" integer DEFAULT 0 NOT NULL;

@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from . import coverage as cov
 from . import osm
+from . import sectors as sec
 from .curves import DURATIONS, critical_speed
 from .downsample import bucket_min_max
 from .predict import predict, predict_standard
@@ -336,6 +337,60 @@ class AreaRequest(BaseModel):
     osm_id: int
     groups: dict[str, list[str]] = Field(description="group -> ids of the tracks that belong to it")
     tracks: list[TrackIn]
+    streams: dict[str, str] = Field(
+        default_factory=dict, description="track id -> streams key, for timing sector passes"
+    )
+    starts: dict[str, str] = Field(
+        default_factory=dict, description="track id -> ISO start time of the activity"
+    )
+
+
+# Sectors are per sport: a running sector and a cycling one are different
+# efforts on the same street, and "all" would mix them.
+SECTOR_GROUPS = ("foot", "bike")
+
+
+def _sectors(network: cov.Network, tracks: list[cov.Track], req: AreaRequest,
+             frames: dict[str, Any]) -> list[dict[str, Any]]:
+    """The most-run stretches in this area, each with every pass timed."""
+    found = sec.mine(network, sec.traversals(network, tracks))
+    out = []
+    for sector in found:
+        timed = []
+        for activity_id in sorted(sector.activities):
+            key = req.streams.get(activity_id)
+            if not key:
+                continue
+            if activity_id not in frames:
+                try:
+                    frames[activity_id] = get_parquet(key)
+                except Exception:
+                    log.warning("sector passes: no stream at %s", key)
+                    frames[activity_id] = None
+            frame = frames[activity_id]
+            if frame is None:
+                continue
+            start = req.starts.get(activity_id)
+            for p in sec.passes(sector, frame, network.proj):
+                at = None
+                if start:
+                    at = (dt.datetime.fromisoformat(start.replace("Z", "+00:00"))
+                          + dt.timedelta(seconds=p["start_s"])).isoformat()
+                timed.append({"activity_id": activity_id, "at": at, **p})
+        # Mined from where routes went, timed from when they crossed the gates.
+        # A sector most routes only touch mid-way is not worth a row.
+        if len(timed) < sec.MIN_SUPPORT:
+            continue
+        timed.sort(key=lambda p: p["at"] or "")
+        elapsed = np.array([p["elapsed_s"] for p in timed])
+        out.append({
+            **sec.describe(network, sector),
+            "passes": timed,
+            "best_s": float(elapsed.min()),
+            "median_s": float(np.median(elapsed)),
+            "last_s": float(timed[-1]["elapsed_s"]),
+        })
+    return out
 
 
 def _decode(tracks: list[TrackIn]) -> list[cov.Track]:
@@ -401,8 +456,11 @@ def coverage_area(req: AreaRequest) -> dict[str, Any]:
     tracks = {t.id: t for t in _decode(req.tracks)}
     computed_at = dt.datetime.now(dt.timezone.utc).isoformat()
     results: dict[str, Any] = {}
+    frames: dict[str, Any] = {}
     for group, ids in req.groups.items():
-        result = cov.coverage(network, [tracks[i] for i in ids if i in tracks])
+        group_tracks = [tracks[i] for i in ids if i in tracks]
+        result = cov.coverage(network, group_tracks)
+        result["sectors"] = _sectors(network, group_tracks, req, frames) if group in SECTOR_GROUPS else []
         detail = {
             "area": {"id": area.id, "name": area.name, "level": area.level,
                      "bbox": list(area.bbox), "outline": cov.outline(area)},
@@ -412,6 +470,7 @@ def coverage_area(req: AreaRequest) -> dict[str, Any]:
             "sample_m": cov.SAMPLE_M,
             "tolerance_m": cov.TOLERANCE_M,
             "done_fraction": cov.DONE_FRACTION,
+            "sector_version": sec.SECTOR_VERSION,
             **result,
         }
         put_bytes(_detail_key(req.athlete_id, group, req.osm_id),
@@ -420,6 +479,7 @@ def coverage_area(req: AreaRequest) -> dict[str, Any]:
             **result["totals"],
             "subareas": len(result["subareas"]),
             "activities": result["activities"],
+            "sectors": len(result["sectors"]),
         }
     return {"area": {"id": area.id, "name": area.name, "level": area.level, "bbox": list(area.bbox)},
             "results": results, "computed_at": computed_at}

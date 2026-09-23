@@ -613,8 +613,54 @@ Two findings from building it against the real Overpass API:
   retried with growing pauses, and neither it nor a timed-out partial result
   (a JSON `remark`) is ever cached.
 
-- ☐ **Sectors** — auto-suggested most-run stretches and their performance
-  history. Builds on the same street sampling.
+**Done — auto-suggested sectors.** Instead of drawing a segment and matching
+it, the stretches your routes repeat are found for you, per commune and per
+sport. Streets are cut into junction-to-junction edges (two OSM ways that meet
+share a node, and Overpass writes its coordinates identically in both, so no
+node ids are needed); each route becomes the ordered, directed sequence of
+edges it ran along, ignoring streets merely crossed at a junction; the
+most-travelled directed edge seeds a sector that grows along whichever next
+edge at least 60% of the same activities continue onto. Direction matters: the
+same street run the other way is its own sector. A sector needs ≥400 m and
+≥4 activities.
+
+Passes are timed from the full stream, not the simplified track, between two
+gates perpendicular to the street, with the crossing time interpolated between
+samples — well under a second on a watch that records every few. A detour that
+leaves and rejoins fails the path-length check; laps count separately. Each pass
+carries grade-adjusted pace and average heart rate beside the raw time, because
+the same pace ten beats lower is the better run.
+
+On the busiest commune of this corpus: 12 running and 12 cycling sectors, with
+all but 6 of 262 supporting activities timed. Getting there took four fixes the
+synthetic tests could not have found — each is now a regression test:
+
+- **Ordering by projection merged out-and-backs.** Placing each street sample at
+  its nearest point along the route gives it one position, so a street ridden
+  out from home and back again became one pass, and the first and last minutes
+  of rides were stitched into a "sector" nobody ever rode: 50 activities, no
+  passes. Samples are now ordered by the route's own segments, which are in
+  time order.
+- **Dense fixes matched every sample several times**, interleaving the order
+  into noise. Each passing now keeps only its nearest segment.
+- **Parallel paths zig-zagged.** A cycleway beside a road is within 20 m of the
+  same route; sectors alternated between them and inflated a 340 m stretch to
+  654 m, which then failed every path-length check. Each route segment now keeps
+  only the street it was closest to, and consecutive sector edges must meet.
+- **Gates on junctions never fired.** A route turning onto a sector from a side
+  street runs parallel to a gate drawn across the junction. Gates now sit 20 m
+  inside each end.
+
+- ☐ **The busiest short stretches are missing.** A sector needs 400 m of
+  continuous, agreed route; the single most-run street here (70 activities) is
+  split by junctions where routes disperse. Lower the minimum, or merge
+  sectors that share most of their activities.
+- ☐ **Draw your own sector** by clicking a start and an end — the timing code
+  already takes any line; only the UI and storage are missing.
+- ☐ **Micro-sectors.** Split a sector into 100 m pieces and colour each pass's
+  pace per piece to show where time is lost.
+- ☐ **Effort-matched comparison.** Classify each pass by HR zone so threshold
+  passes are compared with threshold passes.
 - ☐ **Self-hosted Overpass.** `OVERPASS_URL` is wired; a regional extract on
   the server would keep area lookups private.
 

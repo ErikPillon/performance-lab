@@ -395,7 +395,10 @@ guard. That test exists because the first hand-run audit found
   an append-only editor, and a recompute control with progress and staleness
 - **Sharing** — invite codes for a coach, scoped per kind of data, and revocation
 - **Map** — a heatmap of every route, and street coverage by commune and
-  neighbourhood: which streets you have run or ridden, and which you have not
+  neighbourhood: which streets you have run or ridden, and which you have not.
+  Each commune also lists its **sectors**: the stretches your routes repeat,
+  found automatically, with every pass timed, grade-adjusted and paired with
+  heart rate
 
 **Street coverage is proximity, not map matching.** Each commune's streets
 come from OpenStreetMap and are sampled every 10 m; a sample counts once any

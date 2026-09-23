@@ -1,11 +1,13 @@
 import L from 'leaflet';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type CoverageAreaRow, type CoverageResponse, type MapGroup } from '../lib/api';
+import { Link } from 'react-router-dom';
+import type uPlot from 'uplot';
+import { api, type CoverageAreaRow, type CoverageResponse, type MapGroup, type Sector } from '../lib/api';
 import { decodePolyline } from '../lib/polyline';
 import { Bar, ErrorNote, Loading, Panel } from '../components/ui';
 import { Empty } from '../components/PmcChart';
-import { themeColor, useThemeVersion } from '../components/Chart';
+import { Chart, themeColor, useThemeVersion } from '../components/Chart';
 import { TILE_URL, darkTheme } from '../components/RouteMap';
 import * as f from '../lib/format';
 
@@ -229,8 +231,10 @@ function AreaDetail({ athleteId, group, area }: { athleteId: string; group: MapG
   const themeVersion = useThemeVersion();
   const [streetFilter, setStreetFilter] = useState('');
   const [unfinished, setUnfinished] = useState(true);
+  const [sectorKey, setSectorKey] = useState<string | null>(null);
 
   const d = detail.data;
+  const sector = d?.sectors?.find((x) => x.key === sectorKey) ?? null;
   const draw = useCallback((renderer: L.Renderer) => {
     if (!d) return [];
     const faint = themeColor('--faint', '#9ca3af');
@@ -243,11 +247,12 @@ function AreaDetail({ athleteId, group, area }: { athleteId: string; group: MapG
         renderer, color: faint, weight: 1.6, opacity: 0.7, interactive: false,
       })),
       ...d.runs.covered.map((run) => L.polyline(decodePolyline(run), {
-        renderer, color: accent, weight: 3, opacity: 0.95, interactive: false,
+        renderer, color: accent, weight: sector ? 2 : 3, opacity: sector ? 0.45 : 0.95, interactive: false,
       })),
+      ...(sector ? sectorLayers(sector, renderer) : []),
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d, themeVersion]);
+  }, [d, sector, themeVersion]);
 
   const bounds = useMemo<L.LatLngBoundsExpression>(
     () => [[area.south, area.west], [area.north, area.east]],
@@ -275,6 +280,12 @@ function AreaDetail({ athleteId, group, area }: { athleteId: string; group: MapG
         : (
           <>
             <LayerMap height={560} draw={draw} bounds={bounds} fitKey={`${area.osmId}-${group}`} />
+            <Sectors
+              group={group}
+              sectors={d.sectors ?? []}
+              selected={sectorKey}
+              onSelect={(key) => setSectorKey((k) => (k === key ? null : key))}
+            />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 0, borderTop: '1px solid var(--border)' }}>
               <section style={{ padding: 16, borderRight: '1px solid var(--border)' }}>
                 <h3 style={h3}>Neighbourhoods</h3>
@@ -327,6 +338,187 @@ function AreaDetail({ athleteId, group, area }: { athleteId: string; group: MapG
     </Panel>
   );
 }
+
+/**
+ * The stretches this area's routes repeat, found rather than drawn, and every
+ * pass along the selected one.
+ */
+function Sectors({ group, sectors, selected, onSelect }: {
+  group: MapGroup;
+  sectors: Sector[];
+  selected: string | null;
+  onSelect: (key: string) => void;
+}) {
+  const sector = sectors.find((s) => s.key === selected) ?? null;
+  return (
+    <section style={{ padding: 16, borderTop: '1px solid var(--border)' }}>
+      <h3 style={h3}>Sectors</h3>
+      {group === 'all' ? (
+        <div style={{ fontSize: 13, color: 'var(--faint)' }}>
+          Sectors are per sport — choose On foot or Cycling.
+        </div>
+      ) : sectors.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--faint)' }}>
+          Nothing here has been covered often enough yet: a sector needs the same stretch of at
+          least 400 m in four or more activities.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--faint)', marginBottom: 10, lineHeight: 1.5 }}>
+            Found from where your routes repeat, in the direction you ran them. Each pass is timed
+            between a gate at either end, so laps count separately and a detour does not count.
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {sectors.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => onSelect(s.key)}
+                style={{
+                  display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) repeat(4, minmax(64px, auto))', gap: 12,
+                  alignItems: 'center', textAlign: 'left', padding: '7px 10px', borderRadius: 8,
+                  cursor: 'pointer', font: 'inherit', fontSize: 12, color: 'var(--text)',
+                  border: `1px solid ${s.key === selected ? 'var(--warn)' : 'var(--border)'}`,
+                  background: s.key === selected ? 'color-mix(in srgb, var(--warn) 10%, transparent)' : 'transparent',
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <strong style={{ fontWeight: 600 }}>{s.name}</strong>
+                  <span style={{ color: 'var(--muted)' }}> · {f.km(s.length_m, 2)} km</span>
+                </span>
+                <Metric label="passes" value={String(s.passes.length)} />
+                <Metric label="best" value={f.raceTime(s.best_s)} />
+                <Metric label="median" value={f.raceTime(s.median_s)} />
+                <Metric
+                  label="last"
+                  value={f.raceTime(s.last_s)}
+                  tone={s.last_s < s.median_s ? 'var(--good)' : s.last_s > s.median_s * 1.05 ? 'var(--bad)' : undefined}
+                />
+              </button>
+            ))}
+          </div>
+          {sector && <SectorPasses sector={sector} group={group} />}
+        </>
+      )}
+    </section>
+  );
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ color: tone ?? 'var(--text)' }}>{value}</span>
+      <span style={{ color: 'var(--faint)', marginLeft: 4 }}>{label}</span>
+    </span>
+  );
+}
+
+/**
+ * Every pass, over time, and in a table fastest first.
+ *
+ * Raw pace answers "was I faster"; the columns beside it answer "was it a fair
+ * comparison". Grade-adjusted pace matters for a sector with a climb in it,
+ * and heart rate is there because the same pace at ten beats lower is the
+ * better run — which is the question a repeated stretch of street is best
+ * placed to answer.
+ */
+function SectorPasses({ sector, group }: { sector: Sector; group: MapGroup }) {
+  const themeVersion = useThemeVersion();
+  const onFoot = group === 'foot';
+  const rate = (speed: number) => (onFoot ? 1000 / speed : speed * 3.6);
+  const show = (speed: number | undefined) =>
+    speed == null ? '—' : onFoot ? f.pace(1000 / speed) : `${(speed * 3.6).toFixed(1)}`;
+  const unit = onFoot ? '/km' : 'km/h';
+
+  const dated = sector.passes.filter((p) => p.at);
+  const data = useMemo<uPlot.AlignedData>(() => [
+    dated.map((p) => Date.parse(p.at!) / 1000),
+    dated.map((p) => rate(p.speed_mps)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [sector.key, group]);
+
+  const options = useMemo<Omit<uPlot.Options, 'width' | 'height'>>(() => {
+    const grid = { stroke: themeColor('--grid', '#eee'), width: 1 };
+    const axisText = themeColor('--faint', '#888');
+    const warn = themeColor('--warn', '#d97706');
+    return {
+      legend: { show: false },
+      cursor: { points: { size: 6 } },
+      // Pace: smaller is faster, so the axis runs downwards and faster is higher.
+      scales: { y: { dir: onFoot ? -1 : 1 } },
+      axes: [
+        { stroke: axisText, grid, ticks: grid },
+        {
+          stroke: axisText, grid, ticks: grid, size: 56,
+          values: (_u, splits) => splits.map((v) => (v == null ? '' : onFoot ? f.pace(v) : v.toFixed(1))),
+        },
+      ],
+      series: [
+        {},
+        { label: 'Pass', stroke: warn, width: 0, points: { show: true, size: 6, stroke: warn, fill: `${warn}66` } },
+      ],
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeVersion, onFoot]);
+
+  const fastest = [...sector.passes].sort((a, b) => a.elapsed_s - b.elapsed_s);
+  return (
+    <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+      {dated.length >= 2 && (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {onFoot ? 'Pace' : 'Speed'} on every pass{onFoot ? ' — faster is higher' : ''}
+          </div>
+          <Chart data={data} options={options} height={220} themeVersion={themeVersion} />
+        </>
+      )}
+      <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+          <thead>
+            <tr style={{ color: 'var(--faint)', textAlign: 'right' }}>
+              <th style={{ ...cell, textAlign: 'left' }}>date</th>
+              <th style={cell}>time</th>
+              <th style={cell}>{onFoot ? 'pace' : 'speed'} {unit}</th>
+              <th style={cell}>grade-adj.</th>
+              <th style={cell}>avg HR</th>
+              <th style={cell}>climb</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fastest.map((p, i) => (
+              <tr key={`${p.activity_id}-${p.at}`} style={{ textAlign: 'right', borderTop: '1px solid var(--border)' }}>
+                <td style={{ ...cell, textAlign: 'left' }}>
+                  <Link to={`/activities/${p.activity_id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+                    {p.at ? f.date(p.at, { year: 'numeric' }) : 'activity'}
+                  </Link>
+                  {i === 0 && <span style={{ color: 'var(--good)', marginLeft: 6 }}>best</span>}
+                </td>
+                <td style={cell}>{f.raceTime(p.elapsed_s)}</td>
+                <td style={cell}>{show(p.speed_mps)}</td>
+                <td style={cell}>{show(p.gap_speed_mps)}</td>
+                <td style={cell}>{p.avg_hr ? Math.round(p.avg_hr) : '—'}</td>
+                <td style={cell}>{p.gain_m != null ? `${Math.round(p.gain_m)} m` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function sectorLayers(sector: Sector, renderer: L.Renderer): L.Layer[] {
+  const line = decodePolyline(sector.polyline);
+  const warn = themeColor('--warn', '#d97706');
+  const start = line[0]!;
+  const end = line[line.length - 1]!;
+  return [
+    L.polyline(line, { renderer, color: warn, weight: 6, opacity: 0.95, interactive: false }),
+    L.circleMarker(start, { renderer, radius: 6, color: '#fff', weight: 2, fillColor: themeColor('--good', '#059669'), fillOpacity: 1 }),
+    L.circleMarker(end, { renderer, radius: 6, color: '#fff', weight: 2, fillColor: themeColor('--bad', '#dc2626'), fillOpacity: 1 }),
+  ];
+}
+
+const cell: React.CSSProperties = { padding: '5px 6px', fontWeight: 400 };
 
 function Ratio({ name, length, covered }: { name: string; length: number; covered: number }) {
   const frac = length ? covered / length : 0;
