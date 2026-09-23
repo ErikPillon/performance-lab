@@ -634,8 +634,11 @@ without asking Strava again.
   reports itself unconfigured and the UI hides it rather than half-working.
 - ☐ **`TOKEN_ENCRYPTION_KEY`**, 32 random bytes base64. Refuses to start without
   one rather than storing tokens in the clear.
-- ☐ **A public callback**, which is #9. Strava must be able to reach
-  `AUTH_BASE_URL/api/connections/strava/callback`.
+- ☐ **A callback the browser can reach.** The OAuth redirect is followed by the
+  athlete's browser, not by Strava, so a LAN or tailnet address is enough for
+  linking and polling — provided Strava's settings page accepts it as the
+  callback domain, which is unverified for a bare IP. Only webhooks need a
+  public address.
 - ☐ **Untested against the live API.** Every part that can be tested without
   credentials is; nothing has spoken to Strava.
 **Done — webhooks.** Subscription management, the validation handshake and the
@@ -674,6 +677,34 @@ webhook never imports inline.
   `AUTH_BASE_URL/api/connections/strava/webhook`, so the subscription cannot be
   registered from localhost or a LAN address. The UI disables the button and
   explains why rather than failing on press.
+
+**Done — polling, and a sync that finishes on its own.** Three gaps meant a
+linked account only moved when someone pressed a button, and a first import
+never finished without them pressing it again every quarter hour for days:
+
+- A rate-limited run recorded when it could resume, and nothing read it. The
+  job now moves itself back to delayed until Strava's window resets, keeping
+  its id, so "Sync now" in the meantime finds it waiting rather than starting a
+  second walk into the same quota.
+- A run that hit its 200-activity cap simply ended. It now carries on, and the
+  cap goes back to what it was for — keeping any one run short.
+- There was no scheduled sync at all, despite the UI and this file describing
+  polling as the reconciliation path. Every linked account is now re-walked
+  from its cursor every six hours, which also makes the connector useful on a
+  server Strava cannot reach.
+
+Also fixed on the way through: the webhook's reachability check treated
+Tailscale's `100.64.0.0/10` as public and would have offered a subscription
+that could never validate; a successful sync never cleared an `error` status,
+so the badge stayed red after recovery; and the Strava worker was left out of
+graceful shutdown.
+
+And one found by following the bulk-export route: `.fit.gz` uploads were
+accepted and then stored and parsed still compressed, so every file from a
+Garmin or Strava export failed. Ingest now unwraps gzip before hashing — which
+also makes a `.fit` and its `.fit.gz` dedupe to one raw file — and accepts
+`.fit.gz` specifically rather than any `.gz`, since a Strava archive also holds
+`.gpx.gz` and `.tcx.gz` that the parser cannot read.
 
 ### ☐ 15. Garmin and Apple Watch
 

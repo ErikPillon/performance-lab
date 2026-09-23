@@ -6,9 +6,10 @@ import {
   markDeauthorized, stravaToken, viewSubscription, webhookVerifyToken,
   type WebhookEvent,
 } from '@lab/ingest';
-import { stravaSyncQueue } from '@lab/jobs';
+import { requestStravaSync, stravaSyncQueue } from '@lab/jobs';
 import { env } from '../env.js';
 import { requireAthleteAccess } from '../access.js';
+import { isPubliclyReachable } from '../reachability.js';
 
 /**
  * Linking a Strava account.
@@ -176,18 +177,8 @@ export async function connectionRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: 'Strava access expired — reconnect to continue' });
       }
 
-      const queue = stravaSyncQueue();
-      const jobId = `strava-${req.params.id}`;
-      const existing = await queue.getJob(jobId);
-      if (existing) {
-        const state = await existing.getState();
-        if (state === 'waiting' || state === 'active' || state === 'delayed') {
-          return reply.send({ jobId, alreadyRunning: true });
-        }
-        await existing.remove();
-      }
-      await queue.add('strava-sync', { athleteId: req.params.id }, { jobId });
-      return reply.send({ jobId, alreadyRunning: false });
+      const { jobId, alreadyQueued } = await requestStravaSync(req.params.id);
+      return reply.send({ jobId, alreadyRunning: alreadyQueued });
     },
   );
 
@@ -289,9 +280,9 @@ export async function connectionRoutes(app: FastifyInstance) {
           configured: true,
           subscription,
           callbackUrl,
-          // Strava has to reach this from the internet, which a LAN address or
-          // localhost cannot satisfy however well it works in a browser.
-          reachable: /^https:\/\/(?!localhost|127\.|192\.168\.|10\.)/.test(callbackUrl),
+          // Strava has to reach this from the internet, which a LAN or tailnet
+          // address cannot satisfy however well it works in a browser.
+          reachable: isPubliclyReachable(callbackUrl),
         });
       } catch (err) {
         return reply.code(502).send({
