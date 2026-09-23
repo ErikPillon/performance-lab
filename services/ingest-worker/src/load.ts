@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { activity, activityCurve, activityLoad, db } from '@lab/db';
+import { activity, activityCurve, activityLoad, activityTrack, db } from '@lab/db';
 import { computeLoad, type LoadResult } from './analytics.js';
 import { resolveThresholds } from './thresholds.js';
 
@@ -93,8 +93,37 @@ export async function computeAndStore(
     });
 
   await storeCurves(row, result);
+  await storeTrack(row, result);
 
   return { ...result, load, load_method: method };
+}
+
+/**
+ * Replace the activity's simplified route, or remove it when there is none —
+ * a reparse that drops a corrupt GPS channel must not leave the old line on
+ * the map.
+ */
+async function storeTrack(row: ActivityRow, result: LoadResult): Promise<void> {
+  const track = result.track;
+  if (!track) {
+    await db.delete(activityTrack).where(eq(activityTrack.activityId, row.id));
+    return;
+  }
+  const [south, west, north, east] = track.bbox;
+  const values = {
+    activityId: row.id,
+    athleteId: row.athleteId,
+    sport: row.sport,
+    startTime: row.startTime,
+    parts: track.parts,
+    points: track.points,
+    south, west, north, east,
+    version: track.version,
+  };
+  await db.insert(activityTrack).values(values).onConflictDoUpdate({
+    target: activityTrack.activityId,
+    set: values,
+  });
 }
 
 /**

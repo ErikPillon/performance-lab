@@ -578,6 +578,48 @@ median of 48 untouched.
 
 ---
 
+### ◔ 16. Maps across the whole history: heatmap, street coverage, sectors
+
+**Done — tracks.** The load job now also stores each activity's route,
+simplified to 3 m (Douglas-Peucker in a local metric projection) and
+polyline-encoded, split wherever the watch lost signal so a gap is never drawn
+as a straight line through buildings, with single-fix GPS spikes dropped. On
+this corpus: 274 GPS activities, 678,306 fixes → 117,113 points (17%), 0.40 MB
+for the entire history. A recompute backfills existing activities.
+
+**Done — heatmap.** `/map` draws every route on one canvas, coloured by sport,
+with opacity falling as the count rises so a street run once still shows and
+one run two hundred times is not a solid slab. It opens on the busiest area
+rather than the bounding box of everything, which one holiday would otherwise
+zoom out to a continent.
+
+**Done — street coverage by commune and neighbourhood.** Communes (OSM admin
+level 8) are discovered from the tracks themselves and ranked by the share of
+GPS points inside each boundary — exactly, not by bounding box, or a big rural
+commune overlapping the city outranks the city. For each, streets are sampled
+every 10 m and a sample is covered when a route passed within 20 m. Results per
+street, per neighbourhood (admin levels 9/10, or the nearest named suburb or
+quarter where a city has no official boundaries), and the covered and
+uncovered stretches for the map. Runs in a background job, debounced like the
+fitness model, with progress.
+
+Two findings from building it against the real Overpass API:
+
+- **Area queries are too slow; bounding-box tiles are not.** "Every street in
+  this commune" took 174 s for one French town. A 0.05° tile of the densest
+  part answered in 6.6 s. Streets are fetched as tiles, cached for 90 days,
+  shared between neighbouring communes, and clipped locally.
+- **A busy Overpass answers 200 with an HTML page.** It is detected and
+  retried with growing pauses, and neither it nor a timed-out partial result
+  (a JSON `remark`) is ever cached.
+
+- ☐ **Sectors** — auto-suggested most-run stretches and their performance
+  history. Builds on the same street sampling.
+- ☐ **Self-hosted Overpass.** `OVERPASS_URL` is wired; a regional extract on
+  the server would keep area lookups private.
+
+---
+
 ## Tier 4 — More data in
 
 ### ◔ 14. Strava connector

@@ -394,6 +394,18 @@ guard. That test exists because the first hand-run audit found
 - **Thresholds** — what is currently in effect and where each value came from,
   an append-only editor, and a recompute control with progress and staleness
 - **Sharing** — invite codes for a coach, scoped per kind of data, and revocation
+- **Map** — a heatmap of every route, and street coverage by commune and
+  neighbourhood: which streets you have run or ridden, and which you have not
+
+**Street coverage is proximity, not map matching.** Each commune's streets
+come from OpenStreetMap and are sampled every 10 m; a sample counts once any
+route passes within 20 m. A map matcher has to decide which single street a
+track followed and gets it wrong at every junction and parallel footpath;
+proximity has no such failure, at the price of occasionally crediting a street
+within 20 m of one you did take. OpenStreetMap data is fetched from the public
+Overpass API in small tiles, one request at a time, and cached for 90 days —
+`OVERPASS_URL` points it at your own instance. As with the map tiles, the
+server you query learns which areas you look at.
 
 Two decisions worth knowing about:
 

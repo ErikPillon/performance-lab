@@ -14,6 +14,7 @@ import { activity, athlete, athleteThreshold, db } from '@lab/db';
 import { estimateThresholds } from './analytics.js';
 import { calibrateEstimates, computeAndStore } from './load.js';
 import { rebuildPmc } from './pmc.js';
+import { requestCoverageRefresh } from '@lab/jobs';
 
 export interface RecomputeOptions {
   estimateThresholds?: boolean;
@@ -138,6 +139,9 @@ export async function recomputeAthlete(
 
   progress({ phase: 'pmc' });
   const { days } = await rebuildPmc(athleteId);
+
+  // Tracks were rewritten along with load; coverage follows from them.
+  await requestCoverageRefresh(athleteId, 0);
 
   progress({ phase: 'done' });
   return {

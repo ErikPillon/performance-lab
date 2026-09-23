@@ -1,6 +1,6 @@
 import {
   pgTable, pgEnum, uuid, text, integer, doublePrecision, timestamp, date,
-  jsonb, index, uniqueIndex, smallint, primaryKey, boolean,
+  jsonb, index, uniqueIndex, smallint, primaryKey, boolean, bigint,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { user } from './auth-schema.js';
@@ -527,3 +527,68 @@ export type NewActivityLoad = typeof activityLoad.$inferInsert;
 export type AthleteDaily = typeof athleteDaily.$inferSelect;
 export type ActivityCurve = typeof activityCurve.$inferSelect;
 export type CoachAthleteGrant = typeof coachAthleteGrant.$inferSelect;
+
+/**
+ * The simplified route of an activity, for maps that draw many at once.
+ *
+ * A few metres of Douglas-Peucker tolerance keeps the shape in about a sixth
+ * of the fixes, and the encoded-polyline format stores a point in about four
+ * bytes — a whole training history fits in well under a megabyte, which is
+ * what makes a heatmap of every session practical. Split into parts wherever
+ * the watch lost the signal, so a gap is never drawn as a straight line.
+ *
+ * Derived, like everything else: the load job writes it, so a recompute
+ * rebuilds it. The bounding box is kept as columns so an area can ask for only
+ * the tracks that could possibly touch it.
+ */
+export const activityTrack = pgTable('activity_track', {
+  activityId: uuid('activity_id')
+    .primaryKey()
+    .references(() => activity.id, { onDelete: 'cascade' }),
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  sport: sportEnum('sport').notNull(),
+  startTime: timestamp('start_time', { withTimezone: true }).notNull(),
+  /** Encoded polylines (precision 5, ~1 m), one per continuous stretch. */
+  parts: jsonb('parts').$type<string[]>().notNull(),
+  points: integer('points').notNull(),
+  south: doublePrecision('south').notNull(),
+  west: doublePrecision('west').notNull(),
+  north: doublePrecision('north').notNull(),
+  east: doublePrecision('east').notNull(),
+  version: smallint('version').notNull(),
+}, (t) => [
+  index('activity_track_athlete_idx').on(t.athleteId, t.startTime),
+]);
+
+export const coverageGroupEnum = pgEnum('coverage_group', ['foot', 'bike', 'all']);
+
+/**
+ * How much of a commune's street network has been covered, per sport group.
+ *
+ * The totals only. The drawable detail — every covered and uncovered stretch
+ * of street — lives in object storage next to the streams, because it is large,
+ * derived, and only ever read whole by the map.
+ */
+export const coverageArea = pgTable('coverage_area', {
+  athleteId: uuid('athlete_id').notNull().references(() => athlete.id, { onDelete: 'cascade' }),
+  group: coverageGroupEnum('group').notNull(),
+  /** The OpenStreetMap relation id of the boundary. */
+  osmId: bigint('osm_id', { mode: 'number' }).notNull(),
+  name: text('name').notNull(),
+  adminLevel: smallint('admin_level').notNull(),
+  south: doublePrecision('south').notNull(),
+  west: doublePrecision('west').notNull(),
+  north: doublePrecision('north').notNull(),
+  east: doublePrecision('east').notNull(),
+  /** Share of the athlete's GPS points inside the boundary, for ranking. */
+  share: doublePrecision('share').notNull(),
+  lengthM: integer('length_m').notNull(),
+  coveredM: integer('covered_m').notNull(),
+  streets: integer('streets').notNull(),
+  streetsDone: integer('streets_done').notNull(),
+  subareas: integer('subareas').notNull(),
+  activities: integer('activities').notNull(),
+  computedAt: timestamp('computed_at', { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.athleteId, t.group, t.osmId] }),
+]);

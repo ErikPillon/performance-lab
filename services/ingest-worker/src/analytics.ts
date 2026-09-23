@@ -106,7 +106,17 @@ export interface LoadResult {
   /** metric -> { duration in seconds -> best sustained average }. */
   curves?: Record<string, Record<string, number>> | null;
   critical?: { metric: string; critical_speed_mps: number; d_prime_m: number; r_squared: number } | null;
+  /** The simplified route, when the activity has GPS. */
+  track?: TrackSummary | null;
   calc_version: string;
+}
+
+export interface TrackSummary {
+  parts: string[];
+  /** south, west, north, east */
+  bbox: [number, number, number, number];
+  points: number;
+  version: number;
 }
 
 export interface PmcDay {
@@ -159,4 +169,49 @@ export function estimateThresholds(
   activities: Record<string, unknown>[],
 ): Promise<Record<string, unknown>> {
   return post('/thresholds/estimate', { activities }, 300_000);
+}
+
+export interface TrackIn {
+  id: string;
+  parts: string[];
+}
+
+export interface DiscoveredArea {
+  id: number;
+  name: string;
+  level: number;
+  /** south, west, north, east */
+  bbox: [number, number, number, number];
+  points: number;
+  share: number;
+}
+
+export interface AreaTotals {
+  length_m: number;
+  covered_m: number;
+  streets: number;
+  streets_done: number;
+  subareas: number;
+  activities: number;
+}
+
+/**
+ * Coverage is the slow path of this service: the first run of an area fetches
+ * its streets from OpenStreetMap, politely and one request at a time. Minutes,
+ * not seconds — and still worth doing inline in a background job rather than
+ * behind a web request.
+ */
+const COVERAGE_TIMEOUT_MS = 20 * 60_000;
+
+export function discoverAreas(tracks: TrackIn[]): Promise<{ areas: DiscoveredArea[]; points: number }> {
+  return post('/coverage/discover', { tracks }, COVERAGE_TIMEOUT_MS);
+}
+
+export function computeArea(
+  athleteId: string,
+  osmId: number,
+  groups: Record<string, string[]>,
+  tracks: TrackIn[],
+): Promise<{ area: { id: number; name: string; level: number; bbox: number[] }; results: Record<string, AreaTotals>; computed_at: string }> {
+  return post('/coverage/area', { athlete_id: athleteId, osm_id: osmId, groups, tracks }, COVERAGE_TIMEOUT_MS);
 }
