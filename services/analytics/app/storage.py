@@ -53,3 +53,29 @@ def put_parquet(key: str, df: pl.DataFrame) -> int:
 def get_parquet(key: str) -> pl.DataFrame:
     """Read a stream file back out of object storage."""
     return pl.read_parquet(io.BytesIO(get_bytes(key)))
+
+
+def put_bytes(key: str, payload: bytes, content_type: str) -> None:
+    _client().put_object(Bucket=bucket(), Key=key, Body=payload, ContentType=content_type)
+
+
+def get_bytes_if_fresh(key: str, max_age_s: float) -> bytes | None:
+    """An object's bytes, or None when it is missing or older than `max_age_s`.
+
+    Used for caches of third-party data: a miss and a stale entry are the same
+    thing to the caller, which fetches again either way.
+    """
+    import datetime as dt
+
+    from botocore.exceptions import ClientError
+
+    try:
+        obj = _client().get_object(Bucket=bucket(), Key=key)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+            return None
+        raise
+    age = (dt.datetime.now(dt.timezone.utc) - obj["LastModified"]).total_seconds()
+    if age > max_age_s:
+        return None
+    return obj["Body"].read()

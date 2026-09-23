@@ -23,6 +23,7 @@ export const PMC_QUEUE = 'pmc';
 export const RECOMPUTE_QUEUE = 'recompute';
 export const STRAVA_SYNC_QUEUE = 'strava-sync';
 export const INTERVALS_SYNC_QUEUE = 'intervals-sync';
+export const COVERAGE_QUEUE = 'coverage';
 
 export interface ParseJob {
   rawFileId: string;
@@ -70,6 +71,11 @@ export interface PollJob {
 
 export type StravaQueueJob = StravaSyncJob | PollJob;
 export type IntervalsQueueJob = IntervalsSyncJob | PollJob;
+
+/** Rediscover an athlete's areas and recompute their street coverage. */
+export interface CoverageJob {
+  athleteId: string;
+}
 
 export interface RecomputeJob {
   athleteId: string;
@@ -137,6 +143,14 @@ export const stravaSyncQueue = () => queue<StravaQueueJob>(STRAVA_SYNC_QUEUE, sy
 
 /** Same shape and the same one-walker-per-athlete rule as Strava. */
 export const intervalsSyncQueue = () => queue<IntervalsQueueJob>(INTERVALS_SYNC_QUEUE, syncOptions);
+
+/** Long and polite: the first run of an area waits on OpenStreetMap. */
+export const coverageQueue = () =>
+  queue<CoverageJob>(COVERAGE_QUEUE, {
+    attempts: 1,
+    removeOnComplete: { count: 20 },
+    removeOnFail: { age: 7 * 24 * 3_600 },
+  });
 
 export const recomputeQueue = () =>
   queue<RecomputeJob>(RECOMPUTE_QUEUE, {
@@ -280,4 +294,26 @@ export async function requestRecompute(job: RecomputeJob): Promise<string> {
   }
   await q.add('recompute', job, { jobId: id });
   return id;
+}
+
+export const coverageJobId = (athleteId: string) => `coverage-${athleteId}`;
+
+/**
+ * Queue a coverage refresh, collapsing bursts into one run.
+ *
+ * The same debounce as the fitness model: an import of a season's files, or a
+ * morning's sync, lands on a single pending job ten minutes after the last
+ * activity rather than recomputing every commune once per file. A refresh
+ * already running is left alone; the next activity schedules the next one.
+ */
+export async function requestCoverageRefresh(athleteId: string, delayMs = 10 * 60_000) {
+  const q = coverageQueue();
+  const id = coverageJobId(athleteId);
+  const existing = await q.getJob(id);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'active') return;
+    await existing.remove().catch(() => {});
+  }
+  await q.add('coverage', { athleteId }, { jobId: id, delay: delayMs });
 }

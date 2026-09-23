@@ -71,6 +71,13 @@
       "when": 1790197395694,
       "tag": "0009_intervals_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790199138968,
+      "tag": "0010_tracks_and_coverage",
+      "breakpoints": true
     }
   ]
 }

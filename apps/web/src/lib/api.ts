@@ -388,6 +388,66 @@ export interface SubscriptionStatus {
   reachable?: boolean;
 }
 
+
+export type MapGroup = 'foot' | 'bike' | 'all';
+
+export interface TrackRow {
+  id: string;
+  sport: string;
+  startTime: string;
+  /** Encoded polylines, one per continuous stretch. */
+  parts: string[];
+}
+
+export interface CoverageAreaRow {
+  osmId: number;
+  name: string;
+  adminLevel: number;
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+  share: number;
+  lengthM: number;
+  coveredM: number;
+  streets: number;
+  streetsDone: number;
+  subareas: number;
+  activities: number;
+  computedAt: string;
+}
+
+export interface CoverageProgress {
+  phase: 'discovering' | 'computing' | 'done';
+  done: number;
+  total: number;
+  area?: string;
+}
+
+export interface CoverageResponse {
+  areas: CoverageAreaRow[];
+  refresh: {
+    state: string;
+    progress: CoverageProgress | number | null;
+    failedReason: string | null;
+  } | null;
+  canRefresh: boolean;
+}
+
+export interface CoverageDetail {
+  area: { id: number; name: string; level: number; bbox: [number, number, number, number]; outline: string[] };
+  group: MapGroup;
+  computed_at: string;
+  tolerance_m: number;
+  done_fraction: number;
+  totals: { length_m: number; covered_m: number; streets: number; streets_done: number };
+  streets: { name: string; length_m: number; covered_m: number }[];
+  subareas: { id: number; name: string; length_m: number; covered_m: number }[];
+  subareas_approx: boolean;
+  runs: { covered: string[]; uncovered: string[] };
+  activities: number;
+}
+
 export const api = {
   me: () => get<Me>('/me'),
   athletes: () => get<{ athletes: Athlete[] }>('/athletes'),
@@ -468,6 +528,14 @@ export const api = {
     send<{ deleted: number }>(`/athletes/${id}/blocks/${blockId}`, 'DELETE'),
   racePredictions: (id: string) =>
     get<{ predictions: Record<string, RacePrediction> }>(`/athletes/${id}/races/predictions`),
+  tracks: (id: string, group: MapGroup, from?: string) =>
+    get<{ tracks: TrackRow[] }>(`/athletes/${id}/tracks`, { group, from }),
+  coverage: (id: string, group: MapGroup) =>
+    get<CoverageResponse>(`/athletes/${id}/coverage`, { group }),
+  refreshCoverage: (id: string) =>
+    send<{ queued: boolean }>(`/athletes/${id}/coverage/refresh`, 'POST'),
+  coverageDetail: (id: string, osmId: number, group: MapGroup) =>
+    get<CoverageDetail>(`/athletes/${id}/coverage/${osmId}`, { group }),
   connections: (id: string) => get<ConnectionsResponse>(`/athletes/${id}/connections`),
   connectStrava: (id: string) =>
     send<{ url: string }>(`/athletes/${id}/connections/strava`, 'POST'),

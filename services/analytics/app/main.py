@@ -12,22 +12,32 @@ keeps one service in charge of the schema contract.
 
 from __future__ import annotations
 
+import datetime as dt
+import gzip
+import json
 import logging
+import re
 from typing import Any
+
+import numpy as np
+import shapely
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from . import coverage as cov
+from . import osm
 from .curves import DURATIONS, critical_speed
 from .downsample import bucket_min_max
 from .predict import predict, predict_standard
 from .strava import parse_strava
 from .vdot import from_curve as vdot_from_curve
 from .fit import PARSER_VERSION, dedupe_key, parse_fit
+from .geo import decode_polyline, track_summary
 from .load import CALC_VERSION, Thresholds, compute_load
 from .pmc import CALC_VERSION as PMC_VERSION
 from .pmc import build_series, form_label
-from .storage import get_bytes, get_parquet, put_parquet
+from .storage import get_bytes, get_bytes_if_fresh, get_parquet, put_bytes, put_parquet
 from .thresholds import ESTIMATOR_VERSION, estimate
 
 log = logging.getLogger("analytics")
@@ -172,17 +182,24 @@ def load(req: LoadRequest) -> dict[str, Any]:
         except Exception as exc:
             raise HTTPException(502, f"could not read streams {req.streams_key}: {exc}") from exc
     try:
-        return compute_load(req.summary, frame, req.thresholds.to_domain(), req.preference)
+        result = compute_load(req.summary, frame, req.thresholds.to_domain(), req.preference)
     except Exception as exc:
         log.exception("load failed for %s", req.streams_key)
         raise HTTPException(500, f"load computation failed: {exc}") from exc
+
+    # The simplified route rides along, since the stream is already in memory.
+    # A failure here must not cost the activity its load.
+    try:
+        result["track"] = track_summary(frame) if frame is not None else None
+    except Exception:
+        log.exception("track simplification failed for %s", req.streams_key)
+        result["track"] = None
+    return result
 
 
 @app.post("/pmc")
 def pmc(req: PmcRequest) -> dict[str, Any]:
     """Build the fitness/fatigue/form series from daily training load."""
-    import datetime as dt
-
     try:
         start = dt.date.fromisoformat(req.start) if req.start else None
         end = dt.date.fromisoformat(req.end) if req.end else None
@@ -292,3 +309,125 @@ def thresholds_estimate(req: EstimateRequest) -> dict[str, Any]:
                 log.warning("skipping unreadable stream %s", key)
         enriched.append(item)
     return estimate(enriched)
+
+
+# --------------------------------------------------------------------------
+# Street coverage
+# --------------------------------------------------------------------------
+
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+GROUPS = ("foot", "bike", "all")
+
+
+class TrackIn(BaseModel):
+    id: str
+    parts: list[str] = Field(description="Encoded polylines, one per continuous stretch")
+
+
+class DiscoverRequest(BaseModel):
+    tracks: list[TrackIn]
+    level: int = 8
+    min_share: float = Field(default=0.005, description="Ignore areas holding less of your GPS than this")
+    max_areas: int = 25
+
+
+class AreaRequest(BaseModel):
+    athlete_id: str
+    osm_id: int
+    groups: dict[str, list[str]] = Field(description="group -> ids of the tracks that belong to it")
+    tracks: list[TrackIn]
+
+
+def _decode(tracks: list[TrackIn]) -> list[cov.Track]:
+    return [cov.Track(t.id, [decode_polyline(p) for p in t.parts if p]) for t in tracks]
+
+
+def _detail_key(athlete_id: str, group: str, osm_id: int) -> str:
+    if not _UUID.match(athlete_id) or group not in GROUPS:
+        raise HTTPException(422, "bad athlete id or group")
+    return f"coverage/v{cov.COVERAGE_VERSION}/{athlete_id}/{group}/{int(osm_id)}.json.gz"
+
+
+@app.post("/coverage/discover")
+def coverage_discover(req: DiscoverRequest) -> dict[str, Any]:
+    """The communes your tracks spend the most time in, largest share first.
+
+    Ranked by the share of your GPS points inside each boundary, exactly rather
+    than by bounding box: a big rural commune whose box happens to overlap the
+    city would otherwise outrank the city itself.
+    """
+    tracks = _decode(req.tracks)
+    pts = [p for t in tracks for p in t.parts]
+    if not pts:
+        return {"areas": [], "points": 0}
+    allpts = np.vstack(pts)
+    lat, lon = allpts[:, 0], allpts[:, 1]
+    try:
+        areas = osm.discover_areas(lat, lon, req.level)
+    except osm.OverpassUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    ranked = []
+    for area in areas:
+        inside = int(shapely.contains_xy(area.polygon, lon, lat).sum())
+        share = inside / len(lat)
+        if share >= req.min_share:
+            ranked.append({"id": area.id, "name": area.name, "level": area.level,
+                           "bbox": list(area.bbox), "points": inside, "share": round(share, 4)})
+    ranked.sort(key=lambda a: -a["points"])
+    return {"areas": ranked[: req.max_areas], "points": int(len(lat))}
+
+
+@app.post("/coverage/area")
+def coverage_area(req: AreaRequest) -> dict[str, Any]:
+    """Compute coverage of one area for each sport group, and keep the detail.
+
+    The street network is built once and tested against each group's tracks.
+    The full result — every run of covered and uncovered street — is written
+    to object storage for the map; only the totals come back.
+    """
+    for group in req.groups:
+        _detail_key(req.athlete_id, group, req.osm_id)
+    try:
+        area = osm.boundary(req.osm_id)
+        if area is None:
+            raise HTTPException(404, f"no boundary for relation {req.osm_id}")
+        subs, approx = osm.subareas(area)
+        ways = osm.streets_in(area.bbox)
+    except osm.OverpassUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    network = cov.build_network(area, ways, subs, approx)
+    tracks = {t.id: t for t in _decode(req.tracks)}
+    computed_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    results: dict[str, Any] = {}
+    for group, ids in req.groups.items():
+        result = cov.coverage(network, [tracks[i] for i in ids if i in tracks])
+        detail = {
+            "area": {"id": area.id, "name": area.name, "level": area.level,
+                     "bbox": list(area.bbox), "outline": cov.outline(area)},
+            "group": group,
+            "computed_at": computed_at,
+            "version": cov.COVERAGE_VERSION,
+            "sample_m": cov.SAMPLE_M,
+            "tolerance_m": cov.TOLERANCE_M,
+            "done_fraction": cov.DONE_FRACTION,
+            **result,
+        }
+        put_bytes(_detail_key(req.athlete_id, group, req.osm_id),
+                  gzip.compress(json.dumps(detail, separators=(",", ":")).encode()), "application/gzip")
+        results[group] = {
+            **result["totals"],
+            "subareas": len(result["subareas"]),
+            "activities": result["activities"],
+        }
+    return {"area": {"id": area.id, "name": area.name, "level": area.level, "bbox": list(area.bbox)},
+            "results": results, "computed_at": computed_at}
+
+
+@app.get("/coverage/detail")
+def coverage_detail(athlete_id: str, group: str, osm_id: int) -> dict[str, Any]:
+    blob = get_bytes_if_fresh(_detail_key(athlete_id, group, osm_id), float("inf"))
+    if blob is None:
+        raise HTTPException(404, "not computed yet")
+    return json.loads(gzip.decompress(blob))

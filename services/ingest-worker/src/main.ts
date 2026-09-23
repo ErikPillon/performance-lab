@@ -13,7 +13,7 @@ await app.listen({ port: env.port, host: '0.0.0.0' });
 // Named individually rather than as a count: this line is how you tell from a
 // log whether a newly added worker actually started.
 app.log.info(
-  `ingest listening on :${env.port}; workers running: parse, load, pmc, recompute, strava-sync, intervals-sync`,
+  `ingest listening on :${env.port}; workers running: parse, load, pmc, recompute, strava-sync, intervals-sync, coverage`,
 );
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

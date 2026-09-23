@@ -12,6 +12,7 @@ import { SignIn } from './pages/SignIn';
 import { Sharing } from './pages/Sharing';
 import { Thresholds } from './pages/Thresholds';
 import { Trends } from './pages/Trends';
+import { MapPage } from './pages/Map';
 import { Season } from './pages/Season';
 import { Upload } from './pages/Upload';
 import { Wellness } from './pages/Wellness';
@@ -113,6 +114,9 @@ export default function App() {
         { to: '/activities', label: 'Activities' },
         { to: '/curve', label: 'Curve' },
         { to: '/trends', label: 'Trends' },
+        // Every route at once shows where someone lives; without the location
+        // scope there is nothing here to see.
+        ...(access.scopes.includes('location') ? [{ to: '/map', label: 'Map' }] : []),
         ...(isOwner ? [{ to: '/upload', label: 'Import' }] : []),
         ...(isOwner ? [{ to: '/wellness', label: 'Wellness' }] : []),
         // Thresholds rescale everything derived, so only the athlete sees it.
@@ -151,6 +155,7 @@ export default function App() {
         <Route path="/season" element={<Season athleteId={athlete.id} />} />
         <Route path="/curve" element={<Curve athleteId={athlete.id} />} />
         <Route path="/trends" element={<Trends athleteId={athlete.id} />} />
+        <Route path="/map" element={<MapPage athleteId={athlete.id} />} />
         {isOwner && <Route path="/upload" element={<Upload athleteId={athlete.id} />} />}
         {isOwner && <Route path="/wellness" element={<Wellness athleteId={athlete.id} />} />}
         {isOwner && <Route path="/thresholds" element={<Thresholds athleteId={athlete.id} />} />}

@@ -14,10 +14,13 @@ import {
   RECOMPUTE_QUEUE,
   connection,
   loadQueue,
+  COVERAGE_QUEUE,
   INTERVALS_SYNC_QUEUE,
   STRAVA_SYNC_QUEUE,
+  type CoverageJob,
   type IntervalsQueueJob,
   type StravaQueueJob,
+  requestCoverageRefresh,
   requestIntervalsSync,
   requestPmcRebuild,
   requestStravaSync,
@@ -30,6 +33,7 @@ import {
 } from '@lab/jobs';
 import { followUpDelayMs, type SyncResult } from './followUp.js';
 import { syncIntervals } from './intervalsSync.js';
+import { refreshCoverage } from './coverage.js';
 import { importStravaActivity, syncStrava } from './stravaSync.js';
 
 /**
@@ -168,7 +172,14 @@ async function handleLoad(job: { data: LoadJob }): Promise<string> {
 
   const result = await computeAndStore(row);
   await requestPmcRebuild(job.data.athleteId);
+  // A new route may have reached new streets. Debounced, like the fitness
+  // model, so an import lands on one refresh rather than one per file.
+  if (result.track) await requestCoverageRefresh(job.data.athleteId);
   return result.load_method;
+}
+
+async function handleCoverage(job: Job<CoverageJob>): Promise<string> {
+  return refreshCoverage(job.data.athleteId, (p) => job.updateProgress({ ...p }));
 }
 
 async function handlePmc(job: { data: PmcJob }): Promise<string> {
@@ -301,6 +312,15 @@ export function startWorker() {
     console.error('[intervals-sync] could not schedule the poll:', err.message),
   );
 
+  // Concurrency 1: every area of every athlete waits on the same Overpass
+  // server, which asks for one request at a time.
+  const coverage = new Worker<CoverageJob>(COVERAGE_QUEUE, handleCoverage, {
+    connection: conn,
+    concurrency: 1,
+    // A first run fetches streets for every area; it can take a while.
+    lockDuration: 60 * 60_000,
+  });
+
   const recompute = new Worker<RecomputeJob>(RECOMPUTE_QUEUE, handleRecompute, {
     connection: conn,
     concurrency: 1,
@@ -316,6 +336,7 @@ export function startWorker() {
     ['recompute', recompute],
     ['strava-sync', stravaSync],
     ['intervals-sync', intervalsSync],
+    ['coverage', coverage],
   ] as const) {
     worker.on('failed', (job, err) =>
       console.error(`[${name}] job ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message),
@@ -330,10 +351,11 @@ export function startWorker() {
     recompute,
     stravaSync,
     intervalsSync,
+    coverage,
     async close() {
       await Promise.all([
         parse.close(), load.close(), pmc.close(), recompute.close(),
-        stravaSync.close(), intervalsSync.close(),
+        stravaSync.close(), intervalsSync.close(), coverage.close(),
       ]);
     },
   };

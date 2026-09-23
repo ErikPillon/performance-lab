@@ -76,6 +76,9 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
       S3_BUCKET: ${S3_BUCKET:-performance-lab}
       S3_REGION: ${S3_REGION:-us-east-1}
+      # Street coverage reads OpenStreetMap through Overpass; empty means the
+      # public overpass-api.de instance.
+      OVERPASS_URL: ${OVERPASS_URL:-}
     ports: ["8001:8001"]
     depends_on:
       minio: { condition: service_healthy }

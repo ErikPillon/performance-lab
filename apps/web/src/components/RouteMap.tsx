@@ -22,8 +22,17 @@ import { themeColor, useThemeVersion } from './Chart';
  * own tile server to keep route locations local.
  */
 
-const TILE_URL =
+export const TILE_URL =
   import.meta.env.VITE_MAP_TILES || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+/** Whether the dashboard is drawing dark, by choice or by system preference. */
+export function darkTheme(): boolean {
+  return (
+    document.documentElement.getAttribute('data-theme') === 'dark' ||
+    (!document.documentElement.hasAttribute('data-theme') &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches)
+  );
+}
 
 export type ColorBy = 'speed_mps' | 'altitude_m' | 'heart_rate' | 'none';
 
@@ -121,10 +130,7 @@ export function RouteMap({
   useEffect(() => {
     if (!host.current || points.length < 2) return;
 
-    const dark =
-      document.documentElement.getAttribute('data-theme') === 'dark' ||
-      (!document.documentElement.hasAttribute('data-theme') &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const dark = darkTheme();
 
     const instance = L.map(host.current, {
       zoomControl: true,
