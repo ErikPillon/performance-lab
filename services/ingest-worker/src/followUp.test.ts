@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { followUpDelayMs } from './stravaFollowUp.js';
+import { followUpDelayMs } from './followUp.js';
 
 const counts = { imported: 0, skipped: 0, failed: 0 };
 
-test('a rate-limited run resumes when Strava says the window resets', () => {
+test('a rate-limited run resumes when the provider says the window resets', () => {
   const result = { ...counts, status: 'rate_limited' as const, resumeAfterMs: 420_000 };
   assert.equal(followUpDelayMs(result), 420_000);
 });

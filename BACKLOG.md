@@ -582,6 +582,11 @@ median of 48 untouched.
 
 ### ◔ 14. Strava connector
 
+> **June 2026: Strava's terms now rule this out for history.** A paid
+> subscription is required to own an API app, new apps connect one athlete, and
+> API Policy §6.2 forbids retaining Strava data beyond seven days. See #15 for
+> what replaced it.
+
 **What.** Webhook-first with polling reconciliation, Cloudflare Tunnel for
 public HTTPS ingress, encrypted token storage with proactive refresh, a
 persistent rate-limit bucket and resumable backfill cursor.
@@ -706,12 +711,41 @@ also makes a `.fit` and its `.fit.gz` dedupe to one raw file — and accepts
 `.fit.gz` specifically rather than any `.gz`, since a Strava archive also holds
 `.gpx.gz` and `.tcx.gz` that the parser cannot read.
 
-### ☐ 15. Garmin and Apple Watch
+### ◔ 15. Garmin, and every other watch
 
-**Garmin.** The official Connect Developer Program is business-use with manual
-approval and new sign-ups appeared to be on hold as of 2026 — do not design
-around it. FIT export is the reliable path. Never store another user's Garmin
-password.
+**Garmin directly is closed.** The Connect Developer Program is business-only,
+rejects personal-use applications, and has paused new applications entirely.
+The unofficial libraries that log in with the athlete's password broke in
+March 2026 and are deprecated — and never store another user's Garmin password.
+
+**Strava is not the answer either, as of June 2026.** Its API now requires the
+developer to hold a paid subscription, caps a new app at one athlete (ten
+after a self-upgrade, review beyond that), and its API Policy §6.2 forbids
+retaining Strava data for longer than seven days. A training archive is
+exactly the thing that rule prohibits, so the Strava connector (#14) should be
+treated as unusable for history until that changes.
+
+**Done — intervals.icu as the bridge.** intervals.icu is free and an approved
+partner of Garmin, Coros, Polar, Suunto and Wahoo; the watch's own sync lands
+there within minutes, and its API returns the *original* file. The athlete
+pastes a personal API key, it is checked against intervals.icu and stored
+encrypted, and the worker asks for anything new every ten minutes. Each file
+goes through `ingestBytes` like a browser upload, so it dedupes against files
+already imported by hand — verified end to end against the real database
+with one of the corpus files.
+
+Two things it deliberately does not fetch: activities intervals.icu received
+*from Strava*, which it does not pass on and which Strava's terms would not let
+us keep anyway, and manual entries, which have no file. A GPX or TCX original is
+fetched as the FIT intervals.icu renders from it.
+
+- ☐ **Webhooks, for seconds instead of ten minutes.** They need an intervals.icu
+  OAuth app — free, but approved by hand — and a callback reachable from the
+  internet. The OAuth flow would also replace pasting a key with a "Connect"
+  button.
+- ☐ **Untested against the live API.** Endpoints and fields come from its
+  OpenAPI document and are exercised against a faked server; nothing has run
+  with a real key yet.
 
 **Apple Watch.** No server API exists; it needs a companion iOS app reading
 HealthKit. That is a separate project, not a connector.

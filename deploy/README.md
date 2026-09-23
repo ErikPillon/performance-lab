@@ -115,7 +115,31 @@ Import before creating your account and the first account claims the athlete.
 | **Rehearse a restore** | `./scripts/restore.sh --verify backups/<stamp>` |
 | Restore for real | `./scripts/restore.sh backups/<stamp>` |
 
+## Automatic import from a watch
+
+Garmin, Coros, Polar, Suunto and Wahoo all reach the app through
+[intervals.icu](https://intervals.icu), which is free and an approved partner
+of each. Nothing to configure on the server beyond `TOKEN_ENCRYPTION_KEY`; each
+athlete brings their own key:
+
+1. Create an intervals.icu account and link the watch under Settings →
+   Connections. It backfills what the vendor gives it.
+2. In intervals.icu Settings → Developer Settings, generate an API key.
+3. Paste it into **Automatic import** on the Import page.
+
+The key is verified before it is stored, encrypted. From then on the worker
+checks every ten minutes and imports the original files, deduplicated against
+anything uploaded by hand. A key that is later rejected turns the connection to
+"new key needed" and stops polling rather than failing every ten minutes.
+
 ## Linking Strava
+
+**Read this first.** Since June 2026 Strava requires the developer to hold a
+paid subscription, limits a new app to one connected athlete, and its API
+Policy forbids keeping Strava data for more than seven days — which an
+analytics archive cannot honour. Prefer the intervals.icu route above; this
+section is kept for completeness.
+
 
 Optional. Linking and importing only need *your browser* to reach the server:
 the OAuth redirect is followed by the browser, not by Strava, so a LAN or

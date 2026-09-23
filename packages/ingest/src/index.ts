@@ -15,6 +15,8 @@ export { rawKey, sha256 } from './keys.js';
 export { FIT_FILENAME, unwrapFit } from './fitFile.js';
 export { isConnected, putRaw } from './storage.js';
 export * from './strava.js';
+export * from './intervals.js';
+export { RateLimited } from './rateLimit.js';
 
 /**
  * Accept a file into the pipeline.
@@ -28,7 +30,7 @@ export async function ingestBytes(opts: {
   athleteId: string;
   bytes: Buffer;
   filename?: string;
-  source?: 'upload' | 'strava' | 'garmin' | 'manual';
+  source?: 'upload' | 'strava' | 'garmin' | 'manual' | 'intervals';
   contentType?: string;
 }): Promise<IngestResult> {
   const { athleteId, filename, source = 'upload' } = opts;

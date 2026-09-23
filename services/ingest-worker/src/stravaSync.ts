@@ -7,6 +7,7 @@ import {
 } from '@lab/ingest';
 import { requestPmcRebuild } from '@lab/jobs';
 import { parseStravaActivity, UnparseableError } from './analytics.js';
+import type { SyncResult } from './followUp.js';
 import { loadQueue } from '@lab/jobs';
 
 /**
@@ -29,18 +30,6 @@ const PAGE = 50;
 
 /** Stop well short of the 15-minute quota so an interactive sync stays polite. */
 const MAX_ACTIVITIES_PER_RUN = 200;
-
-export interface SyncResult {
-  status: 'ok' | 'no_connection' | 'rate_limited' | 'error';
-  imported: number;
-  skipped: number;
-  failed: number;
-  /** Set when the run stopped early and can be resumed. */
-  resumeAfterMs?: number;
-  /** The run stopped at its per-run cap with history still left to walk. */
-  more?: boolean;
-  message?: string;
-}
 
 export async function syncStrava(athleteId: string): Promise<SyncResult> {
   const token = await freshStravaToken(athleteId);

@@ -136,3 +136,12 @@ export function raceTime(seconds: number | null | undefined): string {
     ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
     : `${m}:${String(s).padStart(2, '0')}`;
 }
+
+/** "just now", "12 min ago", "3 h ago", then a date — for things that recur in minutes. */
+export function relativeTime(iso: string | Date, now = Date.now()): string {
+  const minutes = Math.round((now - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 24 * 60) return `${Math.round(minutes / 60)} h ago`;
+  return date(iso);
+}
