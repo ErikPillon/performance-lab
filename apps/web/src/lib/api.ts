@@ -363,7 +363,7 @@ export interface RacePrediction {
 }
 
 export interface ConnectionRow {
-  provider: 'strava';
+  provider: 'strava' | 'intervals';
   status: 'active' | 'needs_reauth' | 'error' | 'disconnected';
   syncedThrough: string | null;
   lastSyncAt: string | null;
@@ -376,7 +376,7 @@ export interface ConnectionRow {
 export interface ConnectionsResponse {
   connections: ConnectionRow[];
   /** Whether the server has credentials at all; without them the UI hides it. */
-  providers: { strava: { configured: boolean } };
+  providers: { strava: { configured: boolean }; intervals: { configured: boolean } };
   canManage: boolean;
 }
 
@@ -476,6 +476,16 @@ export const api = {
   syncStrava: (id: string) =>
     send<{ jobId: string; alreadyRunning: boolean }>(
       `/athletes/${id}/connections/strava/sync`, 'POST',
+    ),
+  connectIntervals: (id: string, apiKey: string) =>
+    send<{ athlete: { id: string; name: string | null } }>(
+      `/athletes/${id}/connections/intervals`, 'POST', { apiKey },
+    ),
+  disconnectIntervals: (id: string) =>
+    send<{ disconnected: number }>(`/athletes/${id}/connections/intervals`, 'DELETE'),
+  syncIntervals: (id: string) =>
+    send<{ jobId: string; alreadyRunning: boolean }>(
+      `/athletes/${id}/connections/intervals/sync`, 'POST',
     ),
   stravaSubscription: (id: string) =>
     get<SubscriptionStatus>(`/athletes/${id}/connections/strava/subscription`),

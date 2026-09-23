@@ -14,17 +14,22 @@ import {
   RECOMPUTE_QUEUE,
   connection,
   loadQueue,
+  INTERVALS_SYNC_QUEUE,
   STRAVA_SYNC_QUEUE,
+  type IntervalsQueueJob,
   type StravaQueueJob,
+  requestIntervalsSync,
   requestPmcRebuild,
   requestStravaSync,
+  scheduleIntervalsPoll,
   scheduleStravaPoll,
   type LoadJob,
   type ParseJob,
   type PmcJob,
   type RecomputeJob,
 } from '@lab/jobs';
-import { followUpDelayMs } from './stravaFollowUp.js';
+import { followUpDelayMs, type SyncResult } from './followUp.js';
+import { syncIntervals } from './intervalsSync.js';
 import { importStravaActivity, syncStrava } from './stravaSync.js';
 
 /**
@@ -196,25 +201,35 @@ async function handleRecompute(job: {
 /**
  * Import from a linked Strava account, or fan the scheduled poll out to every
  * linked account.
- *
- * A rate limit does not throw. Strava's quota resets on the quarter hour, and
- * BullMQ's exponential backoff would either retry far too soon or far too
- * late. Instead the job moves itself back to delayed until the window Strava
- * reported, keeping its id — so "Sync now" in the meantime finds it waiting
- * rather than starting a second walk. A run that hit its per-run cap does the
- * same with no delay. The cursor makes each resumption pick up where the last
- * one stopped.
  */
 async function handleStravaSync(job: Job<StravaQueueJob>, token?: string): Promise<string> {
-  if ('poll' in job.data) return pollStrava();
+  if ('poll' in job.data) return pollLinked('strava', requestStravaSync);
 
   const { athleteId, stravaActivityId } = job.data;
   // A webhook names one activity; a manual or scheduled sync walks the history.
   const result = stravaActivityId
     ? await importStravaActivity(athleteId, stravaActivityId)
     : await syncStrava(athleteId);
-  const summary = `${result.status}: ${result.imported} imported, ${result.skipped} already had, ${result.failed} failed`;
+  return finishOrContinue(job, token, result);
+}
 
+/** The same shape for intervals.icu, which has no webhooks to route. */
+async function handleIntervalsSync(job: Job<IntervalsQueueJob>, token?: string): Promise<string> {
+  if ('poll' in job.data) return pollLinked('intervals', requestIntervalsSync);
+  return finishOrContinue(job, token, await syncIntervals(job.data.athleteId));
+}
+
+/**
+ * A rate limit does not throw. Quotas reset on a fixed window, and BullMQ's
+ * exponential backoff would either retry far too soon or far too late.
+ * Instead the job moves itself back to delayed until the window the provider
+ * reported, keeping its id — so "Sync now" in the meantime finds it waiting
+ * rather than starting a second walk. A run that hit its per-run cap does the
+ * same with no delay. The cursor makes each resumption pick up where the last
+ * one stopped.
+ */
+async function finishOrContinue(job: Job, token: string | undefined, result: SyncResult): Promise<string> {
+  const summary = `${result.status}: ${result.imported} imported, ${result.skipped} already had, ${result.failed} failed`;
   const delay = followUpDelayMs(result);
   if (delay !== null && token) {
     await job.log(`${summary}; resuming in ${Math.round(delay / 1000)}s`);
@@ -226,20 +241,24 @@ async function handleStravaSync(job: Job<StravaQueueJob>, token?: string): Promi
 
 /**
  * Queue a sync for every account that can still sync. `error` is included on
- * purpose: it means Strava or the network failed last time, which the next
- * attempt is exactly what fixes. `needs_reauth` is not — only the athlete can.
+ * purpose: it means the provider or the network failed last time, which the
+ * next attempt is exactly what fixes. `needs_reauth` is not — only the athlete
+ * can fix that.
  */
-async function pollStrava(): Promise<string> {
+async function pollLinked(
+  provider: 'strava' | 'intervals',
+  request: (athleteId: string) => Promise<{ alreadyQueued: boolean }>,
+): Promise<string> {
   const linked = await db
     .select({ athleteId: athleteConnection.athleteId })
     .from(athleteConnection)
     .where(and(
-      eq(athleteConnection.provider, 'strava'),
+      eq(athleteConnection.provider, provider),
       inArray(athleteConnection.status, ['active', 'error']),
     ));
   let queued = 0;
   for (const { athleteId } of linked) {
-    if (!(await requestStravaSync(athleteId)).alreadyQueued) queued++;
+    if (!(await request(athleteId)).alreadyQueued) queued++;
   }
   return `${linked.length} linked, ${queued} queued`;
 }
@@ -270,6 +289,18 @@ export function startWorker() {
     console.error('[strava-sync] could not schedule the poll:', err.message),
   );
 
+  // Concurrency 1 for the same reason: the personal-key quota is per key, and
+  // one walker per athlete is already guaranteed by the job id.
+  const intervalsSync = new Worker<IntervalsQueueJob>(INTERVALS_SYNC_QUEUE, handleIntervalsSync, {
+    connection: conn,
+    concurrency: 1,
+    lockDuration: 30 * 60_000,
+  });
+  // Always on: with nobody linked, a poll is one indexed query and nothing else.
+  scheduleIntervalsPoll(true).catch((err) =>
+    console.error('[intervals-sync] could not schedule the poll:', err.message),
+  );
+
   const recompute = new Worker<RecomputeJob>(RECOMPUTE_QUEUE, handleRecompute, {
     connection: conn,
     concurrency: 1,
@@ -284,6 +315,7 @@ export function startWorker() {
     ['pmc', pmc],
     ['recompute', recompute],
     ['strava-sync', stravaSync],
+    ['intervals-sync', intervalsSync],
   ] as const) {
     worker.on('failed', (job, err) =>
       console.error(`[${name}] job ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message),
@@ -297,9 +329,11 @@ export function startWorker() {
     pmc,
     recompute,
     stravaSync,
+    intervalsSync,
     async close() {
       await Promise.all([
-        parse.close(), load.close(), pmc.close(), recompute.close(), stravaSync.close(),
+        parse.close(), load.close(), pmc.close(), recompute.close(),
+        stravaSync.close(), intervalsSync.close(),
       ]);
     },
   };

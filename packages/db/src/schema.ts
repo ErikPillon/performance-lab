@@ -19,7 +19,7 @@ export const sportEnum = pgEnum('sport', [
 
 export const sexEnum = pgEnum('sex', ['male', 'female', 'unspecified']);
 
-export const sourceEnum = pgEnum('source', ['upload', 'strava', 'garmin', 'manual']);
+export const sourceEnum = pgEnum('source', ['upload', 'strava', 'garmin', 'manual', 'intervals']);
 
 /** raw_file lifecycle. `skipped` = parsed fine but carried no usable session. */
 export const ingestStatusEnum = pgEnum('ingest_status', [
@@ -220,7 +220,15 @@ export const activityLoad = pgTable('activity_load', {
 ]);
 
 /** Third-party services an athlete has linked. */
-export const connectionProviderEnum = pgEnum('connection_provider', ['strava']);
+/**
+ * `intervals` is intervals.icu, used as a bridge rather than as an analytics
+ * source: it is an approved partner of Garmin, Polar, Suunto, Coros and Wahoo,
+ * receives the watch's original file within minutes of a sync, and hands that
+ * file back through its API. That is the one free route to the *original* FIT
+ * for an individual — Garmin's own program is business-only, and Strava's API
+ * returns derived streams under a seven-day retention limit.
+ */
+export const connectionProviderEnum = pgEnum('connection_provider', ['strava', 'intervals']);
 
 /**
  * Status of a linked account.

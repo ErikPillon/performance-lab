@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { athleteConnection, db, decryptToken, deriveSecret, encryptToken } from '@lab/db';
+import { RateLimited } from './rateLimit.js';
 
 /**
  * Strava API client.
@@ -131,11 +132,6 @@ export interface StravaActivitySummary {
 }
 
 /** Thrown when Strava says to stop. Carries how long to wait. */
-export class RateLimited extends Error {
-  constructor(public readonly retryAfterMs: number) {
-    super(`strava rate limit hit; retry in ${Math.round(retryAfterMs / 1000)}s`);
-  }
-}
 
 async function call<T>(token: string, path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(`${API}${path}`);
@@ -153,7 +149,7 @@ async function call<T>(token: string, path: string, params?: Record<string, stri
     const wait = Number.isFinite(reset) && reset > 0
       ? Math.max(reset * 1000 - Date.now(), 60_000)
       : 15 * 60_000;
-    throw new RateLimited(wait);
+    throw new RateLimited('strava', wait);
   }
   if (!res.ok) throw new Error(`strava ${path} returned ${res.status}`);
   return (await res.json()) as T;

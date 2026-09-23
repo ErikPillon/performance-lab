@@ -389,7 +389,8 @@ guard. That test exists because the first hand-run audit found
   load against actual, and predicted times beside each race's goal
 - **Wellness** — resting HR, HRV, sleep, weight and feel, one row per day, with
   an optional overlay on the fitness chart
-- **Import** — drag-and-drop FIT upload, and the Strava connection
+- **Import** — drag-and-drop FIT upload, and automatic import from Garmin, Coros,
+  Polar, Suunto or Wahoo through intervals.icu
 - **Thresholds** — what is currently in effect and where each value came from,
   an append-only editor, and a recompute control with progress and staleness
 - **Sharing** — invite codes for a coach, scoped per kind of data, and revocation
@@ -423,11 +424,12 @@ that is almost entirely flat decay.
 The full list, with reasoning, is in [`BACKLOG.md`](BACKLOG.md). The largest
 open items:
 
-- A public hostname — Strava webhooks need a callback it can reach
 - Row-level security, email verification and password reset
 - Coach-assigned workouts with per-session compliance
 - A VO₂max trend over time (the point estimate exists)
-- Garmin and Apple Watch; FIT export and Strava's mirror are the routes today
+- Webhooks from intervals.icu, so a new session arrives in seconds rather than
+  within the ten-minute poll
+- Apple Watch, which has no server API at all
 
 ## Known limitations
 

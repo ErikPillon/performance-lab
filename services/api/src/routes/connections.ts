@@ -2,11 +2,11 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { athleteConnection, db, encryptToken, signState, verifyState } from '@lab/db';
 import {
-  athleteForStravaOwner, createSubscription, deleteSubscription, interpretWebhook,
-  markDeauthorized, stravaToken, viewSubscription, webhookVerifyToken,
-  type WebhookEvent,
+  IntervalsAuthError, athleteForStravaOwner, createSubscription, deleteSubscription,
+  intervalsAthlete, interpretWebhook, markDeauthorized, stravaToken, viewSubscription,
+  webhookVerifyToken, type WebhookEvent,
 } from '@lab/ingest';
-import { requestStravaSync, stravaSyncQueue } from '@lab/jobs';
+import { requestIntervalsSync, requestStravaSync, stravaSyncQueue } from '@lab/jobs';
 import { env } from '../env.js';
 import { requireAthleteAccess } from '../access.js';
 import { isPubliclyReachable } from '../reachability.js';
@@ -34,6 +34,27 @@ const STRAVA_AUTHORIZE = 'https://www.strava.com/oauth/authorize';
  */
 const SCOPES = 'read,activity:read_all';
 
+/** What the provider-generic routes need to know about each provider. */
+const PROVIDERS: Record<string, {
+  id: 'strava' | 'intervals';
+  name: string;
+  reauthMessage: string;
+  requestSync: (athleteId: string) => Promise<{ jobId: string; alreadyQueued: boolean }>;
+}> = {
+  strava: {
+    id: 'strava',
+    name: 'Strava',
+    reauthMessage: 'Strava access expired — reconnect to continue',
+    requestSync: requestStravaSync,
+  },
+  intervals: {
+    id: 'intervals',
+    name: 'intervals.icu',
+    reauthMessage: 'intervals.icu rejected the API key — paste a new one to continue',
+    requestSync: requestIntervalsSync,
+  },
+};
+
 export async function connectionRoutes(app: FastifyInstance) {
   /** What is linked, and whether linking is even possible. */
   app.get<{ Params: { id: string } }>('/athletes/:id/connections', async (req) => {
@@ -55,7 +76,12 @@ export async function connectionRoutes(app: FastifyInstance) {
     return {
       // Tokens are never in this response, under any status.
       connections: rows,
-      providers: { strava: { configured: env.strava.configured } },
+      providers: {
+        strava: { configured: env.strava.configured },
+        // Nothing to register: each athlete brings their own key. It only needs
+        // somewhere safe to keep it.
+        intervals: { configured: env.tokenEncryption },
+      },
       canManage: access.relationship === 'owner',
     };
   });
@@ -148,36 +174,38 @@ export async function connectionRoutes(app: FastifyInstance) {
   /**
    * Ask for a sync now.
    *
-   * Enqueued rather than run inline: a first import walks years of history one
-   * page at a time against a rate-limited API, which is not something to hold a
-   * request open for. The job id is the athlete, so pressing the button twice
-   * collapses onto one run.
+   * Enqueued rather than run inline: a first import walks years of history
+   * against a rate-limited API, which is not something to hold a request open
+   * for. The job id is the athlete, so pressing the button twice collapses onto
+   * one run — including one waiting out a rate limit.
    */
-  app.post<{ Params: { id: string } }>(
-    '/athletes/:id/connections/strava/sync',
+  app.post<{ Params: { id: string; provider: string } }>(
+    '/athletes/:id/connections/:provider/sync',
     async (req, reply) => {
       const access = await requireAthleteAccess(req, req.params.id);
       if (access.relationship !== 'owner') {
         return reply.code(403).send({ error: 'only the athlete can sync their own accounts' });
       }
+      const provider = PROVIDERS[req.params.provider];
+      if (!provider) return reply.code(404).send({ error: 'unknown provider' });
 
       const [row] = await db
         .select({ status: athleteConnection.status })
         .from(athleteConnection)
         .where(and(
           eq(athleteConnection.athleteId, req.params.id),
-          eq(athleteConnection.provider, 'strava'),
+          eq(athleteConnection.provider, provider.id),
         ))
         .limit(1);
 
       if (!row || row.status === 'disconnected') {
-        return reply.code(409).send({ error: 'no Strava account is linked' });
+        return reply.code(409).send({ error: `no ${provider.name} account is linked` });
       }
       if (row.status === 'needs_reauth') {
-        return reply.code(409).send({ error: 'Strava access expired — reconnect to continue' });
+        return reply.code(409).send({ error: provider.reauthMessage });
       }
 
-      const { jobId, alreadyQueued } = await requestStravaSync(req.params.id);
+      const { jobId, alreadyQueued } = await provider.requestSync(req.params.id);
       return reply.send({ jobId, alreadyRunning: alreadyQueued });
     },
   );
@@ -329,14 +357,77 @@ export async function connectionRoutes(app: FastifyInstance) {
     },
   );
 
-  /** Unlink. Deliberately forgets the tokens rather than only marking a flag. */
-  app.delete<{ Params: { id: string } }>(
-    '/athletes/:id/connections/strava',
+  /**
+   * Link intervals.icu with the athlete's personal API key.
+   *
+   * The key is checked against intervals.icu before anything is stored, so a
+   * mistyped one fails here with a message rather than as a sync error ten
+   * minutes later. Reconnecting replaces the key and keeps the cursor: a new
+   * key for the same account carries on where the old one stopped.
+   */
+  app.post<{ Params: { id: string }; Body: { apiKey?: unknown } }>(
+    '/athletes/:id/connections/intervals',
+    async (req, reply) => {
+      const access = await requireAthleteAccess(req, req.params.id);
+      if (access.relationship !== 'owner') {
+        return reply.code(403).send({ error: 'only the athlete can link their own accounts' });
+      }
+      if (!env.tokenEncryption) {
+        return reply.code(503).send({
+          error: 'this server has no TOKEN_ENCRYPTION_KEY, so it cannot store an API key safely',
+        });
+      }
+      const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '';
+      if (apiKey.length < 8 || apiKey.length > 200) {
+        return reply.code(400).send({ error: 'paste the API key from intervals.icu → Settings → Developer Settings' });
+      }
+
+      let owner;
+      try {
+        owner = await intervalsAthlete(apiKey);
+      } catch (err) {
+        if (err instanceof IntervalsAuthError) {
+          return reply.code(400).send({ error: 'intervals.icu did not accept that key' });
+        }
+        req.log.error({ err }, 'intervals.icu key check failed');
+        return reply.code(502).send({ error: 'could not reach intervals.icu — try again shortly' });
+      }
+
+      const values = {
+        athleteId: req.params.id,
+        provider: 'intervals' as const,
+        providerAthleteId: owner.id,
+        accessToken: encryptToken(apiKey),
+        refreshToken: null,
+        expiresAt: null,
+        scope: null,
+        status: 'active' as const,
+        lastError: null,
+      };
+      await db
+        .insert(athleteConnection)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [athleteConnection.athleteId, athleteConnection.provider],
+          set: values,
+        });
+
+      await requestIntervalsSync(req.params.id);
+      return reply.send({ athlete: owner });
+    },
+  );
+
+  /** Unlink. Deliberately forgets the credentials rather than only marking a flag. */
+  app.delete<{ Params: { id: string; provider: string } }>(
+    '/athletes/:id/connections/:provider',
     async (req, reply) => {
       const access = await requireAthleteAccess(req, req.params.id);
       if (access.relationship !== 'owner') {
         return reply.code(403).send({ error: 'only the athlete can unlink their own accounts' });
       }
+      const provider = PROVIDERS[req.params.provider];
+      if (!provider) return reply.code(404).send({ error: 'unknown provider' });
+
       // Nulled, not deleted: the row keeps what was already imported and when,
       // which is worth more than a clean table. The credentials themselves are
       // gone either way, which is the part that matters.
@@ -351,7 +442,7 @@ export async function connectionRoutes(app: FastifyInstance) {
         })
         .where(and(
           eq(athleteConnection.athleteId, req.params.id),
-          eq(athleteConnection.provider, 'strava'),
+          eq(athleteConnection.provider, provider.id),
         ))
         .returning({ id: athleteConnection.id });
 

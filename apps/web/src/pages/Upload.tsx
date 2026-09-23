@@ -112,6 +112,7 @@ export function Upload({ athleteId }: { athleteId: string }) {
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
+      <IntervalsConnection athleteId={athleteId} />
       <Connections athleteId={athleteId} />
 
       <Panel
@@ -276,6 +277,148 @@ function Row({ item }: { item: Item }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * intervals.icu, the automatic route for a watch.
+ *
+ * It is an approved partner of Garmin, Coros, Polar, Suunto and Wahoo, receives
+ * the watch's original file within minutes of a sync, and hands that file back
+ * to this server — which then imports it exactly as if it had been dropped
+ * below. Free, and the athlete's own key rather than an app anyone has to
+ * register or get approved.
+ */
+function IntervalsConnection({ athleteId }: { athleteId: string }) {
+  const queryClient = useQueryClient();
+  const [apiKey, setApiKey] = useState('');
+  const connections = useQuery({
+    queryKey: ['connections', athleteId],
+    queryFn: () => api.connections(athleteId),
+    // The poll runs every ten minutes; keep "last checked" and the count honest
+    // while the page is open.
+    refetchInterval: 60_000,
+  });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['connections', athleteId] });
+
+  const connect = useMutation({
+    mutationFn: () => api.connectIntervals(athleteId, apiKey),
+    onSuccess: () => { setApiKey(''); refresh(); },
+  });
+  const disconnect = useMutation({
+    mutationFn: () => api.disconnectIntervals(athleteId),
+    onSuccess: refresh,
+  });
+  const sync = useMutation({
+    mutationFn: () => api.syncIntervals(athleteId),
+    onSuccess: refresh,
+  });
+
+  if (!connections.data) return null;
+  const { providers, connections: rows, canManage } = connections.data;
+  if (!providers.intervals?.configured) return null;
+
+  const row = rows.find((r) => r.provider === 'intervals');
+  const linked = row && row.status !== 'disconnected';
+  // A rejected key needs a new one, so the form comes back rather than a button
+  // that can only fail again.
+  const askForKey = canManage && (!linked || row.status === 'needs_reauth');
+
+  return (
+    <Panel
+      title="Automatic import"
+      subtitle="From Garmin, Coros, Polar, Suunto or Wahoo, through intervals.icu — original files, free"
+      right={
+        canManage && linked && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending || row.status === 'needs_reauth'}
+              style={buttonStyle(true)}
+            >
+              {sync.isPending ? 'Starting…' : 'Sync now'}
+            </button>
+            <button onClick={() => disconnect.mutate()} disabled={disconnect.isPending} style={buttonStyle(false)}>
+              Disconnect
+            </button>
+          </div>
+        )
+      }
+    >
+      <div style={{ display: 'grid', gap: 10, fontSize: 13 }}>
+        {linked && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Badge tone={row.status === 'active' ? 'good' : row.status === 'needs_reauth' ? 'warn' : 'bad'}>
+              {row.status === 'needs_reauth' ? 'new key needed' : row.status}
+            </Badge>
+            <span style={{ color: 'var(--muted)' }}>
+              {row.importedCount} imported
+              {row.syncedThrough ? ` · synced through ${row.syncedThrough.slice(0, 10)}` : ''}
+              {row.lastSyncAt ? ` · last checked ${f.relativeTime(row.lastSyncAt)}` : ''}
+            </span>
+          </div>
+        )}
+        {linked && row.status === 'active' && (
+          <div style={{ color: 'var(--muted)', lineHeight: 1.6 }}>
+            Checked every ten minutes: a session appears here shortly after your watch syncs.
+            Anything you also upload by hand is recognised and not counted twice.
+          </div>
+        )}
+        {sync.data && (
+          <div style={{ color: 'var(--muted)' }}>
+            {sync.data.alreadyRunning
+              ? 'A sync is already running — activities appear as it works through them.'
+              : 'Sync queued. Activities appear as they are imported.'}
+          </div>
+        )}
+        {row?.lastError && row.status !== 'active' && (
+          <div style={{ fontSize: 12, color: 'var(--faint)' }}>{row.lastError}</div>
+        )}
+
+        {askForKey && (
+          <>
+            {!linked && (
+              <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--muted)', lineHeight: 1.7 }}>
+                <li>
+                  Create a free account at{' '}
+                  <a href="https://intervals.icu" target="_blank" rel="noreferrer">intervals.icu</a>{' '}
+                  and link your watch under Settings → Connections.
+                </li>
+                <li>In Settings → Developer Settings, generate an API key and paste it here.</li>
+              </ol>
+            )}
+            <form
+              onSubmit={(e) => { e.preventDefault(); connect.mutate(); }}
+              style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}
+            >
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder="intervals.icu API key"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                style={{
+                  flex: '1 1 220px', minWidth: 0, fontSize: 13, padding: '5px 9px', borderRadius: 6,
+                  border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)',
+                }}
+              />
+              <button type="submit" disabled={!apiKey.trim() || connect.isPending} style={buttonStyle(true)}>
+                {connect.isPending ? 'Checking…' : linked ? 'Replace key' : 'Connect'}
+              </button>
+            </form>
+            <div style={{ fontSize: 12, color: 'var(--faint)', lineHeight: 1.6 }}>
+              The key is checked with intervals.icu, then stored encrypted. Activities intervals.icu
+              received from Strava cannot be passed on and are skipped.
+            </div>
+          </>
+        )}
+      </div>
+      {(connect.isError || disconnect.isError || sync.isError) && (
+        <div style={{ marginTop: 10 }}>
+          <ErrorNote error={connect.error ?? disconnect.error ?? sync.error} />
+        </div>
+      )}
+    </Panel>
   );
 }
 

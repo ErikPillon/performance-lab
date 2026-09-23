@@ -24,6 +24,11 @@ export const env = {
     configured: !!(process.env.STRAVA_CLIENT_ID && process.env.STRAVA_CLIENT_SECRET),
   },
   /**
+   * Whether a third-party credential can be stored at all. An API key is kept
+   * only as ciphertext, so without the key there is nowhere safe to put one.
+   */
+  tokenEncryption: !!process.env.TOKEN_ENCRYPTION_KEY,
+  /**
    * Credentialed requests cannot use a wildcard origin, so once cookies are in
    * play this must name the real origin. Defaults to the dev app.
    */
