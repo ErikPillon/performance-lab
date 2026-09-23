@@ -32,8 +32,11 @@ services:
       timeout: 3s
       retries: 10
 
+  # MinIO stopped publishing to Docker Hub; minio/minio is gone there, so a
+  # fresh machine cannot pull it. Quay still serves releases. Pinned, so the
+  # next upstream change breaks a PR rather than a deploy.
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -49,7 +52,7 @@ services:
 
   # Creates the bucket and exits. Idempotent.
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio: { condition: service_healthy }
     environment:

@@ -3,8 +3,10 @@
 Self-hosted training analytics for triathlon — an alternative to TrainingPeaks,
 aiming at the analytical depth of Runalyze.
 
-**Status:** ingestion, training-load engine, read API and dashboard working
-end to end against a 252-file corpus (2020–2025, 404,771 samples).
+**Status:** ingestion, training-load engine, authenticated API and dashboard
+working end to end against a 418-file personal corpus, with season planning,
+wellness, race prediction and a Strava connector on top. Deployed pull-based to
+a home server; [`BACKLOG.md`](BACKLOG.md) tracks what is done and what is next.
 
 ## Architecture
 
@@ -329,7 +331,8 @@ The server pulls rather than being pushed to: it sits behind NAT, so this needs
 no inbound port, no tunnel, and no deploy credentials on a runner.
 
 [`deploy/README.md`](deploy/README.md) is the full runbook — first-time setup,
-what is exposed, backups, and what to do when a deploy fails.
+loading an existing FIT archive, what is exposed, backups, and what to do when a
+deploy fails.
 
 ## Authentication
 
@@ -380,8 +383,16 @@ guard. That test exists because the first hand-run audit found
   week-on-week change, and the model's risk flags on the weeks that earned them
 - **Curve** — mean-maximal duration curve per sport and metric, a recent window
   overlaid on all-time, and critical speed / D′ fitted from the aggregate
+- **Trends** — efficiency factor and aerobic decoupling over time, and monthly
+  heart-rate zone distribution with the training shape named
+- **Season** — A/B/C races and periodisation blocks on one axis, weekly planned
+  load against actual, and predicted times beside each race's goal
+- **Wellness** — resting HR, HRV, sleep, weight and feel, one row per day, with
+  an optional overlay on the fitness chart
+- **Import** — drag-and-drop FIT upload, and the Strava connection
 - **Thresholds** — what is currently in effect and where each value came from,
   an append-only editor, and a recompute control with progress and staleness
+- **Sharing** — invite codes for a coach, scoped per kind of data, and revocation
 
 Two decisions worth knowing about:
 
@@ -409,14 +420,14 @@ that is almost entirely flat decay.
 
 ## Not yet built
 
-- Power-duration curve and critical power (the mean-max primitive exists in
-  `app/streams.py`; the curve endpoint does not)
-- VO2max estimation and race prediction
-- Auth (Better Auth) and the coach↔athlete grant model — the API is currently
-  unauthenticated and assumes a single athlete
-- Upload from the browser; the upload endpoint still lives on the ingest worker
-  rather than the API
-- Strava connector (webhook-first) behind a Cloudflare Tunnel
+The full list, with reasoning, is in [`BACKLOG.md`](BACKLOG.md). The largest
+open items:
+
+- A public hostname — Strava webhooks need a callback it can reach
+- Row-level security, email verification and password reset
+- Coach-assigned workouts with per-session compliance
+- A VO₂max trend over time (the point estimate exists)
+- Garmin and Apple Watch; FIT export and Strava's mirror are the routes today
 
 ## Known limitations
 

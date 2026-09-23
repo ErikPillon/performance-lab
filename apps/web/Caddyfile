@@ -3,6 +3,10 @@
 	email {$ACME_EMAIL:admin@localhost}
 	# Staging avoids Let's Encrypt rate limits while getting a deployment right.
 	{$ACME_CA_DIRECTIVE}
+	# Browsers send no SNI when the address is an IP (RFC 6066 forbids it), and
+	# without SNI Caddy cannot pick a certificate and aborts the handshake with
+	# "internal error". The entrypoint derives this host from SITE_ADDRESS.
+	default_sni {$SITE_HOST:localhost}
 }
 
 # SITE_ADDRESS decides how certificates are obtained, and Caddy needs no help
