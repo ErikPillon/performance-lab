@@ -37,6 +37,8 @@ export interface SyncResult {
   failed: number;
   /** Set when the run stopped early and can be resumed. */
   resumeAfterMs?: number;
+  /** The run stopped at its per-run cap with history still left to walk. */
+  more?: boolean;
   message?: string;
 }
 
@@ -61,10 +63,12 @@ export async function syncStrava(athleteId: string): Promise<SyncResult> {
   let skipped = 0;
   let failed = 0;
 
+  // Assume the cap is what ends the walk; reaching the end of history says otherwise.
+  let more = true;
   try {
     while (imported + skipped + failed < MAX_ACTIVITIES_PER_RUN) {
       const page = await listActivities(token, cursor, PAGE);
-      if (page.length === 0) break;
+      if (page.length === 0) { more = false; break; }
 
       for (const summary of page) {
         const startedAt = new Date(summary.start_date);
@@ -87,7 +91,7 @@ export async function syncStrava(athleteId: string): Promise<SyncResult> {
           .where(eq(athleteConnection.id, connection.id));
       }
 
-      if (page.length < PAGE) break;
+      if (page.length < PAGE) { more = false; break; }
     }
   } catch (err) {
     if (err instanceof RateLimited) {
@@ -119,6 +123,11 @@ export async function syncStrava(athleteId: string): Promise<SyncResult> {
   await db
     .update(athleteConnection)
     .set({
+      // Clears an `error` left by an earlier outage, or the badge stays red
+      // after the connection has recovered. Only `error`: a disconnect or a
+      // revoked grant that landed mid-run must not be overwritten.
+      status: sql`case when ${athleteConnection.status} = 'error'
+        then 'active'::connection_status else ${athleteConnection.status} end`,
       lastSyncAt: new Date(),
       lastError: null,
       importedCount: sql`${athleteConnection.importedCount} + ${imported}`,
@@ -128,7 +137,7 @@ export async function syncStrava(athleteId: string): Promise<SyncResult> {
   // One rebuild for the whole batch, debounced, rather than one per activity.
   if (imported > 0) await requestPmcRebuild(athleteId);
 
-  return { status: 'ok', imported, skipped, failed };
+  return { status: 'ok', imported, skipped, failed, more };
 }
 
 /** Fetch, store and convert one activity. Returns whether it was new. */

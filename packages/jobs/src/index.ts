@@ -51,6 +51,19 @@ export interface StravaSyncJob {
   stravaActivityId?: number;
 }
 
+/**
+ * Enqueue a history sync for every linked athlete.
+ *
+ * Polling is what makes the Strava mirror eventually correct: webhooks can be
+ * missed, replayed or never subscribed at all (a server Strava cannot reach),
+ * and without this a linked account only moved when someone pressed a button.
+ */
+export interface StravaPollJob {
+  poll: true;
+}
+
+export type StravaQueueJob = StravaSyncJob | StravaPollJob;
+
 export interface RecomputeJob {
   athleteId: string;
   /** Re-derive thresholds from training history before scoring. */
@@ -108,7 +121,7 @@ export const pmcQueue = () =>
  * walkers through the same paginated history.
  */
 export const stravaSyncQueue = () =>
-  queue<StravaSyncJob>(STRAVA_SYNC_QUEUE, {
+  queue<StravaQueueJob>(STRAVA_SYNC_QUEUE, {
     attempts: 1,
     removeOnComplete: { count: 20 },
     removeOnFail: { age: 7 * 24 * 3_600 },
@@ -177,6 +190,50 @@ export async function requestPmcRebuild(athleteId: string, delayMs = 15_000) {
   const q = pmcQueue();
   await q.remove(athleteId).catch(() => {});
   await q.add('pmc', { athleteId }, { jobId: athleteId, delay: delayMs });
+}
+
+/**
+ * Queue a history sync for one athlete, unless one is already queued, running,
+ * or waiting out a rate limit — all three are the same walk, and a second one
+ * would only race it into the quota. Used by the API's "Sync now" and by the
+ * scheduled poll, so a press during a poll collapses onto it and vice versa.
+ */
+export async function requestStravaSync(
+  athleteId: string,
+): Promise<{ jobId: string; alreadyQueued: boolean }> {
+  const q = stravaSyncQueue();
+  const jobId = `strava-${athleteId}`;
+  const existing = await q.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'waiting' || state === 'active' || state === 'delayed') {
+      return { jobId, alreadyQueued: true };
+    }
+    await existing.remove();
+  }
+  await q.add('strava-sync', { athleteId }, { jobId });
+  return { jobId, alreadyQueued: false };
+}
+
+/** How often every linked Strava account is re-walked from its cursor. */
+export const STRAVA_POLL_EVERY_MS = 6 * 3_600_000;
+
+/**
+ * Turn the recurring poll on or off. Idempotent: it runs at every worker start,
+ * and an upsert replaces the previous definition rather than stacking another.
+ * Off when Strava is not configured, so clearing the credentials also stops it.
+ */
+export async function scheduleStravaPoll(enabled: boolean): Promise<void> {
+  const q = stravaSyncQueue();
+  if (!enabled) {
+    await q.removeJobScheduler('strava-poll');
+    return;
+  }
+  await q.upsertJobScheduler(
+    'strava-poll',
+    { every: STRAVA_POLL_EVERY_MS },
+    { name: 'strava-poll', data: { poll: true } },
+  );
 }
 
 /** Queue a full recompute. Returns the existing job if one is already pending. */

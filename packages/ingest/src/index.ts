@@ -3,6 +3,7 @@ import { db, rawFile } from '@lab/db';
 import { parseQueue, type ParseJob } from '@lab/jobs';
 import { putRaw } from './storage.js';
 import { rawKey, sha256 } from './keys.js';
+import { unwrapFit } from './fitFile.js';
 
 export interface IngestResult {
   rawFileId: string;
@@ -11,6 +12,7 @@ export interface IngestResult {
 }
 
 export { rawKey, sha256 } from './keys.js';
+export { FIT_FILENAME, unwrapFit } from './fitFile.js';
 export { isConnected, putRaw } from './storage.js';
 export * from './strava.js';
 
@@ -29,7 +31,13 @@ export async function ingestBytes(opts: {
   source?: 'upload' | 'strava' | 'garmin' | 'manual';
   contentType?: string;
 }): Promise<IngestResult> {
-  const { athleteId, bytes, filename, source = 'upload' } = opts;
+  const { athleteId, filename, source = 'upload' } = opts;
+  // A `.fit.gz` used to be stored and parsed as-is, and the FIT decoder failed
+  // on the gzip header — so every file from a Garmin or Strava export did.
+  const bytes = unwrapFit(opts.bytes);
+  const contentType = bytes !== opts.bytes
+    ? 'application/vnd.ant.fit'
+    : opts.contentType ?? 'application/vnd.ant.fit';
   const hash = sha256(bytes);
 
   const [existing] = await db
@@ -41,7 +49,7 @@ export async function ingestBytes(opts: {
   if (existing) return { rawFileId: existing.id, sha256: hash, status: 'duplicate' };
 
   const key = rawKey(hash);
-  await putRaw(key, bytes, opts.contentType ?? 'application/vnd.ant.fit');
+  await putRaw(key, bytes, contentType);
 
   // The unique index on (athlete_id, sha256) is the real guard: two concurrent
   // uploads of the same file race past the SELECT above, and one of them loses
@@ -53,7 +61,7 @@ export async function ingestBytes(opts: {
       sha256: hash,
       source,
       originalFilename: filename ?? null,
-      contentType: opts.contentType ?? 'application/vnd.ant.fit',
+      contentType,
       byteSize: bytes.byteLength,
       blobKey: key,
       status: 'pending',

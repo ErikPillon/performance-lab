@@ -1,5 +1,6 @@
 /**
- * Backfill a directory of activity files.
+ * Backfill a directory of activity files: `.fit`, or the `.fit.gz` a Garmin or
+ * Strava export contains.
  *
  *   npm run backfill -- ./inputs --athlete "Erik"
  *
@@ -7,13 +8,11 @@
  * are recognised as duplicates and skipped without re-reading or re-parsing.
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { athlete, athleteThreshold, db, sql as pg } from '@lab/db';
-import { ingestBytes } from '@lab/ingest';
+import { FIT_FILENAME, ingestBytes } from '@lab/ingest';
 import { closeQueues, parseQueue } from '@lab/jobs';
-
-const SUPPORTED = new Set(['.fit']);
 
 function arg(flag: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -61,11 +60,11 @@ if (!(await stat(dir).catch(() => null))?.isDirectory()) {
 }
 
 const files = (await readdir(dir))
-  .filter((f) => SUPPORTED.has(extname(f).toLowerCase()))
+  .filter((f) => FIT_FILENAME.test(f))
   .sort();
 
 if (files.length === 0) {
-  console.error(`no supported files in ${dir} (looking for ${[...SUPPORTED].join(', ')})`);
+  console.error(`no supported files in ${dir} (looking for .fit and .fit.gz)`);
   process.exit(1);
 }
 

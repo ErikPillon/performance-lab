@@ -117,16 +117,22 @@ Import before creating your account and the first account claims the athlete.
 
 ## Linking Strava
 
-Optional, and it needs a callback Strava can reach — so it only works once
-`SITE_ADDRESS` is a real hostname with a publicly trusted certificate, not a LAN
-IP behind NAT.
+Optional. Linking and importing only need *your browser* to reach the server:
+the OAuth redirect is followed by the browser, not by Strava, so a LAN or
+Tailscale address works — provided Strava's settings page accepts it as the
+callback domain. Once linked, every account is synced every six hours, and a
+long first import pauses at Strava's rate limit and resumes by itself.
+
+Webhooks, which import new activities within seconds instead of at the next
+sync, are the one part that needs a public HTTPS address: Strava's own servers
+call them. The Import page disables the button until `AUTH_BASE_URL` is one.
 
 1. Create an application at <https://www.strava.com/settings/api>.
 2. Set its **Authorization Callback Domain** to the host in `AUTH_BASE_URL` —
    just the host, no scheme and no path.
 3. Put the client id and secret in `.env` as `STRAVA_CLIENT_ID` and
    `STRAVA_CLIENT_SECRET`, set `TOKEN_ENCRYPTION_KEY`, and redeploy.
-4. Connect from the Import page.
+4. Connect from the Import page, and press **Sync now** for the first import.
 
 Leave the credentials empty and the connector reports itself unconfigured and
 stays hidden, rather than offering a button that leads to an error page.
@@ -136,6 +142,13 @@ original FIT file — third-party applications get a summary and smoothed stream
 Anything uploaded directly stays the better copy, and a session arriving both
 ways is merged rather than counted twice. Garmin Connect syncs to Strava
 natively, which is how Garmin activities get in without a Garmin integration.
+
+**For history, prefer Strava's bulk export.** Settings → My Account → *Download
+or Delete Your Account* → *Request your archive* emails a zip whose
+`activities/` folder holds the original files. Drop the `.fit.gz` files on the
+Import page, or copy them to `inputs/` and run the backfill above — they are
+unwrapped on the way in. `.gpx.gz` and `.tcx.gz` are skipped; there is no parser
+for them yet.
 
 ## Backups
 

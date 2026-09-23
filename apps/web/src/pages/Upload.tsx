@@ -47,10 +47,11 @@ export function Upload({ athleteId }: { athleteId: string }) {
 
       for (const file of files) {
         const id = `${file.name}-${file.size}-${file.lastModified}`;
-        const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
         // Checked here as well as on the server, so an obviously wrong file
-        // gets an instant answer instead of a round trip.
-        if (extension !== 'fit' && extension !== 'gz') {
+        // gets an instant answer instead of a round trip. Same rule as the
+        // server's FIT_FILENAME: a bare .gz also matches the .gpx.gz and
+        // .tcx.gz in a Strava archive, which cannot be parsed.
+        if (!/\.fit(\.gz)?$/i.test(file.name)) {
           rejected.push({
             id, file, progress: 0,
             outcome: { filename: file.name, status: 'rejected', reason: 'not a .fit file' },
@@ -378,7 +379,8 @@ function Connections({ athleteId }: { athleteId: string }) {
             <div style={{ color: 'var(--muted)' }}>
               {sync.data.alreadyRunning
                 ? 'A sync is already running — activities will appear as it works through them.'
-                : 'Sync queued. Activities appear as they are imported.'}
+                : 'Sync queued. Activities appear as they are imported; a long history pauses at '
+                  + "Strava's rate limit and resumes on its own."}
             </div>
           )}
           {strava.status === 'needs_reauth' && (
@@ -462,20 +464,22 @@ function AutomaticImport({ athleteId }: { athleteId: string }) {
         {sub ? (
           <>
             Strava notifies this server as activities appear, so they import within seconds
-            instead of on the next sync. The regular sync still runs and is what catches anything
-            a notification missed.
+            instead of on the next sync. The sync every six hours still runs and is what catches
+            anything a notification missed.
           </>
         ) : !reachable ? (
           <>
             Not available yet: Strava has to reach{' '}
             <code style={{ fontSize: 11 }}>{callbackUrl}</code> from the internet, and a
-            localhost or LAN address cannot be reached from outside your network. Everything else
-            works without it — press <strong>Sync now</strong> to import.
+            localhost, LAN or tailnet address cannot be reached from outside. Everything else
+            works without it: new activities arrive with the sync every six hours, or press{' '}
+            <strong>Sync now</strong>.
           </>
         ) : (
           <>
-            Off. Activities import when you press <strong>Sync now</strong>. Turning this on has
-            Strava notify the server instead, so they arrive within seconds.
+            Off. Activities import with the sync every six hours, or when you press{' '}
+            <strong>Sync now</strong>. Turning this on has Strava notify the server as well, so
+            they arrive within seconds.
           </>
         )}
       </div>

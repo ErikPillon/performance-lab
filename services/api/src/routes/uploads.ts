@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
-import { ingestBytes } from '@lab/ingest';
+import { FIT_FILENAME, ingestBytes } from '@lab/ingest';
 import { env } from '../env.js';
 import { requireAthleteAccess } from '../access.js';
 
@@ -17,8 +17,6 @@ import { requireAthleteAccess } from '../access.js';
  * returns in well under a second and a bad file cannot take the API down.
  */
 
-/** Extensions the pipeline can actually decode. */
-const ACCEPTED = new Set(['fit', 'gz']);
 
 export async function uploadRoutes(app: FastifyInstance) {
   await app.register(multipart, {
@@ -47,15 +45,14 @@ export async function uploadRoutes(app: FastifyInstance) {
     }[] = [];
 
     for await (const part of req.files()) {
-      const extension = part.filename.split('.').pop()?.toLowerCase() ?? '';
-      if (!ACCEPTED.has(extension)) {
+      if (!FIT_FILENAME.test(part.filename)) {
         // Drain the stream even when rejecting: an unread part blocks the ones
         // behind it, so a single .jpg would hang the rest of the upload.
         await part.toBuffer();
         results.push({
           filename: part.filename,
           status: 'rejected',
-          reason: `${extension || 'no extension'} is not a FIT file`,
+          reason: 'not a FIT file (.fit or .fit.gz)',
         });
         continue;
       }
