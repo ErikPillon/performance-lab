@@ -31,6 +31,12 @@ COPY packages/jobs ./packages/jobs
 COPY packages/ingest ./packages/ingest
 COPY services/ingest-worker ./services/ingest-worker
 RUN node scripts/bundle.mjs services/ingest-worker/src/main.ts dist/main.js
+# The bootstrap and replay CLIs ship too — without them a fresh server has no
+# way to load a FIT archive or rebuild load after a model change. Run with
+#   docker compose ... run --rm -v "$PWD/inputs:/inputs:ro" ingest-worker \
+#     node dist/backfill.js /inputs --athlete "<name>"
+RUN node scripts/bundle.mjs services/ingest-worker/src/backfill.ts dist/backfill.js \
+ && node scripts/bundle.mjs services/ingest-worker/src/recompute.ts dist/recompute.js
 
 
 # --- run -------------------------------------------------------------------

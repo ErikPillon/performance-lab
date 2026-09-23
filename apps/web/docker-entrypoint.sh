@@ -21,4 +21,10 @@ else
   echo "[caddy] no CLOUDFLARE_API_TOKEN - using Caddy's internal CA"
 fi
 
+# Bare host of SITE_ADDRESS, for default_sni: scheme, path and port removed.
+host=${SITE_ADDRESS:-https://localhost}
+host=${host#*://}
+host=${host%%/*}
+export SITE_HOST=${host%:*}
+
 exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile

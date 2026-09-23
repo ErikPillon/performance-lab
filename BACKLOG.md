@@ -298,7 +298,7 @@ otherwise hang the rest of the upload.
 
 **Effort** small. **Depends on** #7 for anything multi-user.
 
-### ◔ 9. TLS and real deployment on 192.168.40.100
+### ◔ 9. TLS and real deployment on the home server
 
 **What.** Caddy with a Cloudflare DNS-01 challenge for a real certificate on the
 LAN IP — needed for Secure cookies and WebCrypto, and self-signed certs will
@@ -357,6 +357,31 @@ since March", not "we lost the last six hours".
   pipe or a burglary. `age` or `restic` to object storage.
 - ☐ **Streaming replication**, if the recovery point objective ever needs to be
   tighter than "last night". Not yet worth the operational weight.
+
+**Done — first real deploy.** Running it on a fresh box found four things no
+local run could, because a laptop always has the image cached, the containers
+already up, and a hostname in the address bar:
+
+- `minio/minio` no longer exists on Docker Hub. Both MinIO images now come
+  from quay.io, pinned to a release.
+- `deploy.sh` compared `compose images` before and after the pull, but that
+  reports what containers were *created* from, which a pull never changes — so
+  a moved `:latest` looked identical and the timer would never have deployed
+  anything. It now compares each container's image id with what its tag
+  resolves to, and treats a missing container as changed. The same check made
+  the first deploy a silent no-op.
+- Migrations ran with `--no-deps` on a server where nothing had started
+  Postgres. It is now brought up and waited on first.
+- Browsers send no SNI for an IP address, and without it Caddy aborts the
+  handshake. `default_sni` is set from `SITE_ADDRESS`.
+
+The worker image also ships the backfill and recompute CLIs now; without them
+a fresh server had no way to load an archive.
+
+- ☐ **Timers.** The units hardcode `/opt/performance-lab`; they are installed
+  with sudo once the checkout lives there.
+- ☐ **`BACKUP_REMOTE`.** Until it is set, the only copy of the FIT files is on
+  the server's own disk.
 
 ---
 

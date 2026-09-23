@@ -46,16 +46,29 @@ export IMAGE_TAG=$TARGET
 log "target: $TARGET (currently deployed: $PREVIOUS)"
 
 # --- pull ---------------------------------------------------------------
-# Record what is running first, so "did anything change?" is answerable even
-# when the tag string is identical — :latest moves, the digest is the truth.
-before=$("${COMPOSE[@]}" images --format json 2>/dev/null | tr -d '\n')
+# "Did anything change?" has to be answered per container, against the image
+# its tag resolves to after the pull — :latest moves, the image id is the truth.
+# `compose images` cannot answer it: it reports what containers were created
+# from, which a pull never changes, so a moved :latest looked identical before
+# and after and the timer never deployed. A service with no container at all
+# (first deploy) counts as changed.
+needs_update() {
+  local services containers cid ref have want
+  services=$("${COMPOSE[@]}" config --services | grep -c .)
+  containers=$("${COMPOSE[@]}" ps -aq)
+  [ "$(printf '%s\n' "$containers" | grep -c .)" -lt "$services" ] && return 0
+  for cid in $containers; do
+    read -r ref have < <(docker inspect -f '{{.Config.Image}} {{.Image}}' "$cid")
+    want=$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null) || return 0
+    [ "$want" = "$have" ] || return 0
+  done
+  return 1
+}
 
 log "pulling images"
 "${COMPOSE[@]}" pull --quiet || die "pull failed — is the tag published?"
 
-after=$("${COMPOSE[@]}" images --format json 2>/dev/null | tr -d '\n')
-
-if [ "$before" = "$after" ] && [ "$TARGET" = "$PREVIOUS" ] && [ "${FORCE:-}" != "1" ]; then
+if ! needs_update && [ "$TARGET" = "$PREVIOUS" ] && [ "${FORCE:-}" != "1" ]; then
   log "already up to date; nothing to do"
   exit 0
 fi
@@ -63,8 +76,11 @@ fi
 # --- migrate ------------------------------------------------------------
 # Before restarting anything: a migration that fails should leave the old
 # version serving, not a half-swapped stack. Runs in the new api image, which
-# ships the bundled migrator and the migration SQL alongside it.
+# ships the bundled migrator and the migration SQL alongside it. `--no-deps`
+# keeps the run from starting the app, so the database is brought up first —
+# on a fresh server nothing else would start it.
 log "applying migrations"
+"${COMPOSE[@]}" up -d --wait postgres || die "postgres did not become healthy"
 if ! "${COMPOSE[@]}" run --rm --no-deps api node dist/migrate.js; then
   die "migration failed — nothing was restarted, the old version is still serving"
 fi

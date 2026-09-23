@@ -88,6 +88,19 @@ To reach the MinIO console or run `psql` against the server, tunnel in:
 ssh -L 9101:localhost:9101 -L 5433:localhost:5432 <server>
 ```
 
+**6. Load an existing archive.** The worker image carries the backfill and
+recompute CLIs. Copy the FIT files to `inputs/` on the server, then:
+
+```bash
+C="docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile apps"
+$C run --rm --no-deps -v "$PWD/inputs:/inputs:ro" ingest-worker \
+  node dist/backfill.js /inputs --athlete "Erik"
+# once the parse queue drains:
+$C run --rm --no-deps ingest-worker node dist/recompute.js --athlete "Erik"
+```
+
+Import before creating your account and the first account claims the athlete.
+
 ## Day to day
 
 | Task | Command |
@@ -97,6 +110,7 @@ ssh -L 9101:localhost:9101 -L 5433:localhost:5432 <server>
 | Pin one build | `./scripts/deploy.sh sha-<commit>` |
 | Undo the last deploy | `./scripts/deploy.sh --rollback` |
 | What is running | `cat .deploy-state` |
+| Pick up compose or script changes | `git pull` — `deploy.sh` pulls images, never the checkout |
 | Back up now | `./scripts/backup.sh` |
 | **Rehearse a restore** | `./scripts/restore.sh --verify backups/<stamp>` |
 | Restore for real | `./scripts/restore.sh backups/<stamp>` |
