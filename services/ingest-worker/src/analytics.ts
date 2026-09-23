@@ -193,6 +193,7 @@ export interface AreaTotals {
   streets_done: number;
   subareas: number;
   activities: number;
+  sectors: number;
 }
 
 /**
@@ -211,7 +212,15 @@ export function computeArea(
   athleteId: string,
   osmId: number,
   groups: Record<string, string[]>,
-  tracks: TrackIn[],
+  input: {
+    tracks: TrackIn[];
+    /** track id -> streams key, so sector passes are timed from the full stream. */
+    streams: Record<string, string>;
+    /** track id -> ISO start, to date each pass. */
+    starts: Record<string, string>;
+  },
 ): Promise<{ area: { id: number; name: string; level: number; bbox: number[] }; results: Record<string, AreaTotals>; computed_at: string }> {
-  return post('/coverage/area', { athlete_id: athleteId, osm_id: osmId, groups, tracks }, COVERAGE_TIMEOUT_MS);
+  return post('/coverage/area', {
+    athlete_id: athleteId, osm_id: osmId, groups, ...input,
+  }, COVERAGE_TIMEOUT_MS);
 }

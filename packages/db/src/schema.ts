@@ -588,6 +588,8 @@ export const coverageArea = pgTable('coverage_area', {
   streetsDone: integer('streets_done').notNull(),
   subareas: integer('subareas').notNull(),
   activities: integer('activities').notNull(),
+  /** Auto-suggested sectors found in this area; the passes live with the detail. */
+  sectors: integer('sectors').notNull().default(0),
   computedAt: timestamp('computed_at', { withTimezone: true }).notNull(),
 }, (t) => [
   primaryKey({ columns: [t.athleteId, t.group, t.osmId] }),

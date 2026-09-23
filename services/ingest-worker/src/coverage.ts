@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { activityTrack, coverageArea, db } from '@lab/db';
+import { activity, activityTrack, coverageArea, db } from '@lab/db';
 import { computeArea, discoverAreas, type TrackIn } from './analytics.js';
 
 /**
@@ -52,8 +52,12 @@ export async function refreshCoverage(
       west: activityTrack.west,
       north: activityTrack.north,
       east: activityTrack.east,
+      startTime: activityTrack.startTime,
+      // Sector passes are timed from the full stream, not the simplified track.
+      streamsKey: activity.streamsKey,
     })
     .from(activityTrack)
+    .innerJoin(activity, eq(activity.id, activityTrack.activityId))
     .where(eq(activityTrack.athleteId, athleteId));
 
   const eligible = rows
@@ -75,9 +79,11 @@ export async function refreshCoverage(
       all: near.map((r) => r.id),
     };
     try {
-      const res = await computeArea(
-        athleteId, area.id, groups, near.map((r) => ({ id: r.id, parts: r.parts })),
-      );
+      const res = await computeArea(athleteId, area.id, groups, {
+        tracks: near.map((r) => ({ id: r.id, parts: r.parts })),
+        streams: Object.fromEntries(near.filter((r) => r.streamsKey).map((r) => [r.id, r.streamsKey!])),
+        starts: Object.fromEntries(near.map((r) => [r.id, r.startTime.toISOString()])),
+      });
       const [south, west, north, east] = area.bbox;
       for (const [group, t] of Object.entries(res.results)) {
         const values = {
@@ -94,6 +100,7 @@ export async function refreshCoverage(
           streetsDone: t.streets_done,
           subareas: t.subareas,
           activities: t.activities,
+          sectors: t.sectors,
           computedAt: new Date(res.computed_at),
         };
         await db.insert(coverageArea).values(values).onConflictDoUpdate({
